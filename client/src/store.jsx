@@ -88,8 +88,8 @@ export function AppProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, meReady, unread, socketOn, toast, setAuth, refreshMe, logout }),
-    [user, meReady, unread, socketOn, toast, setAuth, refreshMe, logout],
+    () => ({ user, meReady, unread, socketOn, toasts, toast, setAuth, refreshMe, logout }),
+    [user, meReady, unread, socketOn, toasts, toast, setAuth, refreshMe, logout],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
