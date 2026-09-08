@@ -1,6 +1,7 @@
 import crypto from "node:crypto";
 import { ZodError } from "zod";
 import { getSessionUser, loadSession, revokeSession, touchSession } from "./util.js";
+import { isCrossOriginRequest } from "./cors.js";
 
 /* ---------------- أدوات Express ---------------- */
 export const asyncH = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
@@ -75,11 +76,12 @@ export function csrfProtect(req, res, next) {
 
 export function setCSRFCookie(req, res) {
   if (!req.cookies?.nama_csrf) {
+    const cross = isCrossOriginRequest(req);
     const value = crypto.randomBytes(24).toString("hex");
     res.cookie("nama_csrf", value, {
       httpOnly: false,
-      sameSite: "strict",
-      secure: process.env.NODE_ENV === "production",
+      sameSite: cross ? "none" : "strict",
+      secure: cross ? true : process.env.NODE_ENV === "production",
       path: "/",
       maxAge: 30 * 24 * 3600 * 1000,
     });

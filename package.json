@@ -4,6 +4,9 @@
   "version": "2.0.0",
   "type": "module",
   "description": "منصة نَما — Full-stack (Backend + Frontend + WebSocket) على سيرفر واحد",
+  "engines": {
+    "node": ">=22.13.0"
+  },
   "scripts": {
     "dev": "concurrently -k -n api,web -c green,cyan \"npm:dev:server\" \"npm:dev:client\"",
     "dev:server": "node --disable-warning=ExperimentalWarning --watch server/index.js",

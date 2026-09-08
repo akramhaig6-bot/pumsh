@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { statusBadge } from "../lib/api.jsx";
+import { statusBadge, absUrl } from "../lib/api.jsx";
 
 export function Spinner() {
   return <div className="spin" aria-label="تحميل" />;
@@ -128,7 +128,7 @@ export function FileChips({ files = [] }) {
   return (
     <div style={{ display: "flex", flexWrap: "wrap", gap: ".4em" }}>
       {files.map((f, i) => (
-        <a key={i} href={f.url} target="_blank" rel="noreferrer" className="chip">
+        <a key={i} href={absUrl(f.url)} target="_blank" rel="noreferrer" className="chip">
           📎 {f.name}
         </a>
       ))}

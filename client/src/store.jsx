@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
-import { api } from "./lib/api.jsx";
+import { api, API_BASE } from "./lib/api.jsx";
 
 const Ctx = createContext(null);
 
@@ -50,7 +50,11 @@ export function AppProvider({ children }) {
       setSocketOn(false);
       return;
     }
-    const s = io("/", { path: "/socket.io", transports: ["websocket", "polling"] });
+    const s = io(API_BASE || "/", {
+      path: "/socket.io",
+      transports: ["websocket", "polling"],
+      withCredentials: !!API_BASE, // في وضع الفصل: إرفاق كوكي الجلسة (نطاق الخادم)
+    });
     socketRef.current = s;
     s.on("connect", () => setSocketOn(true));
     s.on("disconnect", () => setSocketOn(false));
@@ -88,8 +92,8 @@ export function AppProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, meReady, unread, socketOn, toast, setAuth, refreshMe, logout }),
-    [user, meReady, unread, socketOn, toast, setAuth, refreshMe, logout],
+    () => ({ user, meReady, unread, socketOn, toasts, toast, setAuth, refreshMe, logout }),
+    [user, meReady, unread, socketOn, toasts, toast, setAuth, refreshMe, logout],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

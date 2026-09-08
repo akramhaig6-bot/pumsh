@@ -5,6 +5,7 @@ import { parse, failure, asyncH, requireAuth, requestIp, setCSRFCookie } from ".
 import { registerSchema, loginSchema, forgotSchema, resetSchema, changePasswordSchema, profileSchema, createCaptcha, verifyCaptcha } from "../lib/validate.js";
 import { sendMail } from "../lib/mailer.js";
 import { config } from "../config.js";
+import { isCrossOriginRequest } from "../lib/cors.js";
 import { logEvent } from "../services/events.js";
 import { createNotification, notifyAdmins } from "../services/notify.js";
 import { getSettings } from "../services/settings.js";
@@ -52,7 +53,7 @@ auth.post("/register", asyncH(async (req, res) => {
     id, value.name, value.email, value.phone, hash, salt, now(), now(),
   );
   const raw = createSession(id, requestIp(req), req.headers["user-agent"]);
-  res.cookie("nama_sid", raw, cookieOpts());
+  res.cookie("nama_sid", raw, cookieOpts(req));
   logEvent({
     type: "user.register", actorType: "client", actorId: id, actorName: value.name,
     entityType: "user", entityId: id, entityLabel: value.email, details: { email: value.email }, ip: requestIp(req),
@@ -117,7 +118,7 @@ auth.post("/login", asyncH(async (req, res) => {
   // نجاح
   run("UPDATE users SET failed=0, locked_until=NULL, last_login_at=? WHERE id=?", now(), u.id);
   const raw = createSession(u.id, requestIp(req), req.headers["user-agent"]);
-  res.cookie("nama_sid", raw, cookieOpts());
+  res.cookie("nama_sid", raw, cookieOpts(req));
   logEvent({ type: "user.login", actorType: "client", actorId: u.id, actorName: u.name, entityType: "user", entityId: u.id, ip: requestIp(req) });
   const fresh = one("SELECT id,name,email,phone,role,active,must_change,created_at,last_login_at FROM users WHERE id=?", u.id);
   res.json({ ok: true, user: { ...fresh, unread: unreadCount(u.id) } });
@@ -159,7 +160,7 @@ auth.post("/admin/login", asyncH(async (req, res) => {
   }
   run("UPDATE users SET failed=0, locked_until=NULL, last_login_at=? WHERE id=?", now(), u.id);
   const raw = createSession(u.id, requestIp(req), req.headers["user-agent"]);
-  res.cookie("nama_sid", raw, cookieOpts());
+  res.cookie("nama_sid", raw, cookieOpts(req));
   logEvent({ type: "admin.login", actorType: "admin", actorId: u.id, actorName: u.name, entityType: "user", entityId: u.id, ip: requestIp(req) });
   res.json({ ok: true, user: one("SELECT id,name,email,role,active,must_change,created_at,last_login_at FROM users WHERE id=?", u.id) });
 }));
@@ -257,11 +258,12 @@ auth.put("/profile", requireAuth, asyncH(async (req, res) => {
   res.json({ ok: true, user: one("SELECT id,name,email,phone,role,active,created_at,last_login_at FROM users WHERE id=?", req.user.id) });
 }));
 
-function cookieOpts() {
+function cookieOpts(req) {
+  const cross = isCrossOriginRequest(req);
   return {
     httpOnly: true,
-    sameSite: "strict",
-    secure: config.env === "production",
+    sameSite: cross ? "none" : "strict",
+    secure: cross ? true : config.env === "production",
     path: "/",
     maxAge: config.sessionMaxMinutes * 60_000,
   };
