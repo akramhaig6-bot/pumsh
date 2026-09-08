@@ -11,6 +11,15 @@ import { Requests as AdminRequests, RequestDetail as AdminRequestDetail, Tickets
 import { Offers as AdminOffers, Articles as AdminArticles, Pages as AdminPages, Categories as AdminCategories, Banners as AdminBanners, Menus as AdminMenus, Texts as AdminTexts, Media as AdminMedia } from "./pages/admin/content.jsx";
 import { Settings as AdminSettings, Notifications as AdminNotifications, Events as AdminEvents, Admins as AdminAdmins, Me as AdminMe } from "./pages/admin/system.jsx";
 
+function AdminEntry() {
+  const { user, meReady } = useApp();
+
+  if (!meReady) return null;
+  if (!user) return <AdminLogin />;
+  if (user.role !== "admin") return <Navigate to="/" replace />;
+  return <AdminLayout />;
+}
+
 export default function App() {
   return (
     <AppProvider>
@@ -24,7 +33,6 @@ export default function App() {
             <Route path="/articles/:id" element={<ArticleDetail />} />
             <Route path="/page/:slug" element={<PageView />} />
             <Route path="/login" element={<Login />} />
-            <Route path="/login-admin" element={<AdminLogin />} />
             <Route path="/register" element={<Register />} />
             <Route path="/forgot" element={<Forgot />} />
             <Route path="/reset-password" element={<Reset />} />
@@ -38,7 +46,7 @@ export default function App() {
               <Route path="notifications" element={<Notifications />} />
             </Route>
           </Route>
-          <Route path="/admin" element={<AdminLayout />}>
+          <Route path="/admin" element={<AdminEntry />}>
             <Route index element={<Dashboard />} />
             <Route path="requests" element={<AdminRequests />} />
             <Route path="requests/:id" element={<AdminRequestDetail />} />

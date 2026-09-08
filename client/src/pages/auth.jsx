@@ -69,7 +69,6 @@ export function Login() {
         <Link className="small" to="/forgot">نسيت كلمة المرور؟</Link>
         <Link className="small" to="/register">حساب جديد</Link>
       </div>
-      <div className="center mt1"><Link className="btn ghost sm" to="/account/login-admin">دخول الإدارة ←</Link></div>
     </>,
   );
 }
