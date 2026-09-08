@@ -214,7 +214,18 @@ export function AdminLayout() {
         ))}
         <a href="#" onClick={(e) => { e.preventDefault(); nav("/"); }}>🌐 عرض الموقع</a>
       </aside>
-      <main className="admin-main"><Outlet /></main>
+      <main className="admin-main">
+        {user.must_change ? (
+          <div className="card" style={{ margin: "1rem", borderColor: "var(--warn)", background: "#fff7e6" }}>
+            <b>كلمة مرورك الحالية مؤقتة</b>
+            <p className="small muted" style={{ margin: ".35rem 0 .75rem" }}>
+              يجب تغيير كلمة المرور المؤقتة أولاً — بقية بيانات لوحة الإدارة لن تُحمّل قبل ذلك.
+            </p>
+            <Link className="btn sm" to="/admin/me">تغيير كلمة المرور الآن</Link>
+          </div>
+        ) : null}
+        <Outlet />
+      </main>
     </div>
   );
 }
