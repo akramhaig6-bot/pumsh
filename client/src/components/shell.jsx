@@ -194,9 +194,8 @@ export function AdminLayout() {
   const { user, meReady, unread } = useApp();
   const nav = useNavigate();
   useEffect(() => {
-    if (meReady && !user) nav("/login?next=/admin");
-    else if (meReady && user && user.role !== "admin") nav("/");
-  }, [meReady, user]);
+    if (meReady && user && user.role !== "admin") nav("/", { replace: true });
+  }, [meReady, user, nav]);
   if (!meReady || !user || user.role !== "admin") return null;
   return (
     <div className="admin">
