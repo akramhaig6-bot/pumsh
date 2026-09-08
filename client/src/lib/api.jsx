@@ -1,8 +1,37 @@
 /* عميل API موحد — كوكي الجلسة + CSRF + أخطاء عربية */
 
-function csrfToken() {
+/* ===== وضعا النشر المدعومان =====
+   1) نفس الأصل (خادم واحد: VPS/سيرفرك): VITE_API_URL غير معرّف → طلبات نسبية
+      وكوكيات SameSite=Strict — السلوك الأصلي دون أي تغيير.
+   2) واجهة على Vercel + خادم API منفصل: عرّف VITE_API_URL=https://api.example.com
+      أثناء البناء → كل الطلبات تتوجه للخادم مع credentials (CORS)،
+      وتوكن CSRF يُحفظ من استجابة /api/auth/csrf (لا يلزم قراءة كوكي الطرف الآخر). */
+
+export const API_BASE = (import.meta.env.VITE_API_URL || "").replace(/\/+$/, "");
+const crossOrigin = !!API_BASE;
+
+/** إكمال مسار API — يبقى نسبياً في الوضع الأحادي ويُسبق بالنطاق في وضع الفصل */
+export function apiUrl(path) {
+  return API_BASE ? `${API_BASE}${path}` : path;
+}
+
+/** تحويل رابط مورد (صورة/ملف مخزّن برابط نسبي مثل /api/up/..) إلى رابط كامل */
+export function absUrl(u) {
+  if (!u || !API_BASE) return u;
+  if (/^(https?:|data:|blob:|mailto:|#)/i.test(u) || u.startsWith("//")) return u;
+  return `${API_BASE}${u.startsWith("/") ? u : `/${u}`}`;
+}
+
+function csrfCookieToken() {
   const m = document.cookie.match(/(?:^|;\s*)nama_csrf=([^;]+)/);
   return m ? decodeURIComponent(m[1]) : "";
+}
+
+/* في وضع الفصل (cross-origin) كوكي nama_csrf على نطاق الخادم لا يُقرأ من
+   document.cookie، لذلك نحفظ التوكن الذي يعيده الخادم في /api/auth/csrf */
+let csrfMem = "";
+function csrfHeaderValue() {
+  return csrfMem || csrfCookieToken();
 }
 
 export class ApiError extends Error {
@@ -14,7 +43,11 @@ export class ApiError extends Error {
 }
 
 export async function api(path, { method = "GET", body, form, signal } = {}) {
-  const opts = { method, credentials: "same-origin", signal };
+  const opts = {
+    method,
+    credentials: crossOrigin ? "include" : "same-origin",
+    signal,
+  };
   if (form) {
     opts.body = form; // FormData
   } else if (body !== undefined) {
@@ -22,11 +55,12 @@ export async function api(path, { method = "GET", body, form, signal } = {}) {
     opts.body = JSON.stringify(body);
   }
   if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
-    opts.headers = { ...(opts.headers || {}), "X-CSRF-Token": csrfToken() };
+    opts.headers = { ...(opts.headers || {}), "X-CSRF-Token": csrfHeaderValue() };
   }
-  const res = await fetch(path, opts);
+  const res = await fetch(apiUrl(path), opts);
   let data = null;
   try { data = await res.json(); } catch { /* فارغ */ }
+  if (data && typeof data.csrf === "string" && data.csrf) csrfMem = data.csrf;
   if (!res.ok || !data?.ok) {
     const err = new ApiError(data?.error || "تعذر تنفيذ الطلب", res.status, data);
     if (res.status === 401) window.dispatchEvent(new CustomEvent("auth:expired"));

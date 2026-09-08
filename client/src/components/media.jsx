@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, qs } from "../lib/api.jsx";
+import { api, qs, absUrl } from "../lib/api.jsx";
 import { Modal, Spinner } from "./ui.jsx";
 
 /**
@@ -139,7 +139,7 @@ export function MediaPicker({ onClose, onPick, pick = false, multi = false }) {
                       multi ? (on ? s.filter((x) => x.id !== m.id) : [...s, m]) : [m],
                     )
                   }>
-                  <img src={url} alt={m.original_name} loading="lazy" />
+                  <img src={absUrl(url)} alt={m.original_name} loading="lazy" />
                   <div className="cap" title={m.original_name}>{m.original_name}</div>
                 </div>
               );
@@ -161,7 +161,7 @@ export function ImageInput({ value, onChange, label = "الصورة" }) {
         <button type="button" className="btn sm secondary" onClick={() => setPick(true)}>📁</button>
         {value && <button type="button" className="btn sm danger-soft" onClick={() => onChange("")}>✕</button>}
       </div>
-      {value && <img src={value} alt="" style={{ marginTop: ".5em", maxHeight: 120, borderRadius: 8 }} />}
+      {value && <img src={absUrl(value)} alt="" style={{ marginTop: ".5em", maxHeight: 120, borderRadius: 8 }} />}
       {pick && <MediaPicker onClose={() => setPick(false)} onPick={(m) => { onChange(m.url); setPick(false); }} pick />}
     </FieldWrap>
   );

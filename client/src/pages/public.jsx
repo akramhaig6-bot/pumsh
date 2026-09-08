@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, qs, fmtDate } from "../lib/api.jsx";
+import { api, qs, fmtDate, absUrl } from "../lib/api.jsx";
 import { Spinner, Empty, Badge, Pager } from "../components/ui.jsx";
 import { OFFER_STATUSES, ARTICLE_STATUSES } from "../lib/api.jsx";
 import { useApp } from "../store.jsx";
@@ -28,7 +28,7 @@ export function Home() {
       ) : (
         <div className="hero" style={{ paddingBottom: 0 }}>
           <div className="wrap banner-slide" style={{ paddingBottom: "3.4rem" }}>
-            <img src={banner.image} alt={banner.headline} style={{ borderRadius: 18 }} />
+            <img src={absUrl(banner.image)} alt={banner.headline} style={{ borderRadius: 18 }} />
           </div>
         </div>
       )}
@@ -65,7 +65,7 @@ export function Home() {
 export function OfferCard({ o }) {
   return (
     <div className="card offer-card">
-      {o.image && <img className="img" src={o.image} alt={o.title} loading="lazy" />}
+      {o.image && <img className="img" src={absUrl(o.image)} alt={o.title} loading="lazy" />}
       <div className="body">
         <h3><Link to={`/offers/${o.id}`}>{o.title}</Link></h3>
         <p>{o.summary}</p>
@@ -81,7 +81,7 @@ export function OfferCard({ o }) {
 export function ArticleCard({ a }) {
   return (
     <div className="card article-card">
-      {a.image && <img className="img" src={a.image} alt={a.title} loading="lazy" />}
+      {a.image && <img className="img" src={absUrl(a.image)} alt={a.title} loading="lazy" />}
       <div className="body">
         {a.category_name && <span className="chip">{a.category_name}</span>}
         <h3><Link to={`/articles/${a.id}`}>{a.title}</Link></h3>
@@ -158,7 +158,7 @@ export function OfferDetail() {
       <div className="grid" style={{ gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr)", gap: "1.3rem" }}>
         <div>
           <div className="card pad0">
-            {d.offer.image && <img src={d.offer.image} alt="" style={{ width: "100%", maxHeight: 320, objectFit: "cover" }} />}
+            {d.offer.image && <img src={absUrl(d.offer.image)} alt="" style={{ width: "100%", maxHeight: 320, objectFit: "cover" }} />}
             <div className="card-body">
               <h1>{d.offer.title}</h1>
               <p className="muted">{d.offer.summary}</p>
@@ -245,7 +245,7 @@ export function ArticleDetail() {
   return (
     <div className="wrap" style={{ padding: "2rem 1rem", maxWidth: 820 }}>
       <div className="card pad0">
-        {d.article.image && <img src={d.article.image} alt="" style={{ width: "100%", maxHeight: 360, objectFit: "cover" }} />}
+        {d.article.image && <img src={absUrl(d.article.image)} alt="" style={{ width: "100%", maxHeight: 360, objectFit: "cover" }} />}
         <div className="card-body">
           {d.article.category_name && <span className="chip">{d.article.category_name}</span>}
           <h1>{d.article.title}</h1>

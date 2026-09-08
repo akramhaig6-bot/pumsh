@@ -6,11 +6,28 @@ import { fileURLToPath } from "node:url";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const root = path.resolve(__dirname, "..");
 
+const splitList = (v = "") => v.split(",").map((s) => s.trim()).filter(Boolean);
+const normOrigin = (u) => {
+  try { return new URL(u).origin; } catch { return (u || "").replace(/\/+$/, ""); }
+};
+
+const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf8"));
+
 export const config = {
   root,
+  version: pkg.version || "2.0.0",
   port: Number(process.env.PORT || 8080),
   env: process.env.NODE_ENV || "development",
   publicUrl: (process.env.PUBLIC_URL || `http://localhost:${process.env.PORT || 8080}`).replace(/\/$/, ""),
+  /* نطاقات الواجهة الأمامية المسموح لها cross-origin:
+     CORS_ORIGINS (قائمة) + PUBLIC_URL — تُستخدم لـ CORS واختيار سياسة الكوكيز.
+     عند عدم ضبط أي نطاق مختلف: يبقى السلوك same-origin كما كان تماماً. */
+  frontendOrigins: [...new Set([
+    ...splitList(process.env.CORS_ORIGINS).map(normOrigin),
+    normOrigin(process.env.PUBLIC_URL || ""),
+  ].filter(Boolean))],
+  /* لاحقات يُسمح لأي أصل ينتهي بها (مثل معاينات *.vercel.app) */
+  originSuffixes: splitList(process.env.CORS_ORIGIN_SUFFIXES || ".vercel.app"),
   secret: process.env.SECRET || "dev-secret-change-me",
   sessionIdleMinutes: Number(process.env.SESSION_IDLE_MINUTES || 30),
   sessionMaxMinutes: Number(process.env.SESSION_MAX_MINUTES || 720),

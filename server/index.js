@@ -12,6 +12,7 @@ import { generalLimiter, authLimiter, uploadLimiter } from "./lib/limiter.js";
 import { csrfProtect, errorHandler, getRawToken, getSessionUser } from "./http-reexport.js";
 import { attachIO } from "./services/notify.js";
 import { attachRealtime } from "./services/realtime.js";
+import { corsMiddleware, isOriginAllowed } from "./lib/cors.js";
 import { auth } from "./routes/auth.js";
 import { pub } from "./routes/public.js";
 import { client } from "./routes/client.js";
@@ -45,7 +46,11 @@ app.use(generalLimiter);
 const server = http.createServer(app);
 const io = new Server(server, {
   path: "/socket.io",
-  cors: { origin: config.publicUrl, credentials: true },
+  cors: {
+    // نفس الأصل + نطاقات الواجهة المسموحة + معاينات *.vercel.app
+    origin: (origin, cb) => cb(null, !origin || isOriginAllowed(origin)),
+    credentials: true,
+  },
   transports: ["websocket", "polling"],
   serveClient: false,
 });
@@ -69,6 +74,9 @@ app.use("/api", (req, res, next) => {
   res.setHeader("Cache-Control", "no-store");
   next();
 });
+
+/* ---------------- CORS (للواجهة على نطاق مختلف — Vercel + خادم API) ---------------- */
+app.use("/api", corsMiddleware);
 
 /* ---------------- الصحة ---------------- */
 app.get("/api/health", (req, res) => {

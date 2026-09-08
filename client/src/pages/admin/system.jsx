@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { api, qs, fmtDate } from "../../lib/api.jsx";
+import { api, qs, fmtDate, absUrl } from "../../lib/api.jsx";
 import { Spinner, Empty, Badge, Pager, Modal, Confirm, Field } from "../../components/ui.jsx";
 import { PageHead } from "../../components/shell.jsx";
 import { useApp } from "../../store.jsx";
@@ -64,8 +64,8 @@ export function Settings() {
               <Field label="شعار (رابط صورة)"><input dir="ltr" value={f.logo || ""} onChange={(e) => set("logo", e.target.value)} placeholder="/api/up/..." /></Field>
               <Field label="أيقونة الموقع (favicon)"><input dir="ltr" value={f.favicon || ""} onChange={(e) => set("favicon", e.target.value)} /></Field>
               <div className="grid cols2 mt1">
-                {f.logo && <img src={f.logo} alt="الشعار" style={{ maxHeight: 80 }} />}
-                {f.favicon && <img src={f.favicon} alt="الأيقونة" style={{ maxHeight: 64 }} />}
+                {f.logo && <img src={absUrl(f.logo)} alt="الشعار" style={{ maxHeight: 80 }} />}
+                {f.favicon && <img src={absUrl(f.favicon)} alt="الأيقونة" style={{ maxHeight: 64 }} />}
               </div>
             </>
           )}

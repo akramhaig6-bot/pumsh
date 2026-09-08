@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api, qs, fmtDate, OFFER_STATUSES, ARTICLE_STATUSES, PAGE_STATUSES } from "../../lib/api.jsx";
+import { api, qs, fmtDate, absUrl, OFFER_STATUSES, ARTICLE_STATUSES, PAGE_STATUSES } from "../../lib/api.jsx";
 import { Spinner, Empty, Badge, Pager, Modal, Confirm, Field } from "../../components/ui.jsx";
 import { PageHead } from "../../components/shell.jsx";
 import { RichText, MediaPicker, ImageInput } from "../../components/media.jsx";
@@ -390,7 +390,7 @@ export function Banners() {
       <div className="card pad0">
         {!d ? <Spinner /> : d.banners?.length ? d.banners.map((b) => (
           <div key={b.id} className="list-row">
-            <img className="thumb" src={b.image} alt="" />
+            <img className="thumb" src={absUrl(b.image)} alt="" />
             <div style={{ flex: 1 }}>
               <div className="t">{b.headline || b.name || "بانر بدون عنوان"}</div>
               <div className="s">نقرات: {b.clicks} · ترتيب: {b.ord} · {fmtDate(b.updated_at)}</div>
@@ -608,7 +608,7 @@ export function Media() {
             <div className="media-grid">
               {d.media.map((m) => (
                 <div key={m.id} className="m">
-                  <img src={`/api/up/${encodeURIComponent(m.stored_name)}`} alt={m.original_name} loading="lazy" />
+                  <img src={absUrl(`/api/up/${encodeURIComponent(m.stored_name)}`)} alt={m.original_name} loading="lazy" />
                   <div className="cap" title={m.original_name}>{m.original_name}</div>
                   <div className="flex" style={{ padding: "0 .4em .5em" }}>
                     <button className="btn sm secondary" style={{ flex: 1 }} onClick={() => { navigator.clipboard?.writeText(`/api/up/${encodeURIComponent(m.stored_name)}`); toast("نُسخ الرابط"); }}>نسخ</button>
