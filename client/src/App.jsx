@@ -45,12 +45,43 @@ class CrashBoundary extends Component {
 }
 
 function AdminEntry() {
-  const { user, meReady } = useApp();
+  const { user, meReady, backendOk } = useApp();
 
   if (!meReady) return null;
+  if (backendOk === false) return <BackendDownNotice />;
   if (!user) return <AdminLogin />;
   if (user.role !== "admin") return <Navigate to="/" replace />;
   return <AdminLayout />;
+}
+
+/* لوحة الإدارة تعتمد كلياً على خادم API — إن لم يُصب إليه أي طلب
+   (مثل النشر على Vercel كملفات ثابتة فقط، أو خادم متوقف) نعرض السبب بوضوح
+   بدل أخطاء «تعذر تنفيذ الطلب» الغامضة. */
+function BackendDownNotice() {
+  return (
+    <div className="wrap" style={{ maxWidth: 620, padding: "3rem 1rem 4rem" }}>
+      <div className="card">
+        <div className="center" style={{ marginBottom: "1.2rem" }}>
+          <h1 style={{ marginBottom: ".1em" }}>تعذّر الاتصال بخادم المنصة</h1>
+          <p className="muted small" style={{ margin: 0 }}>
+            هذه الواجهة تعمل، لكن خادم البيانات (API) غير متاح — وبدونه لا يمكن فتح لوحة الإدارة.
+          </p>
+        </div>
+        <div className="alert err">
+          كل طلبات <span dir="ltr">/api/*</span> تعيد رداً غير متوقع (غير JSON)، وأشهر سبب: نشر الواجهة
+          على <b>Vercel كملفات ثابتة فقط</b> بينما المشروع يتطلب خادم <b>Node</b> يشغّل{" "}
+          <span dir="ltr">server/index.js</span> (Express + SQLite + WebSocket)، أو أن الخادم متوقف
+          أو أن <span dir="ltr">VITE_API_URL</span> غير مضبوط على عنوان الخادم.
+        </div>
+        <ul className="small" style={{ textAlign: "right", paddingInlineStart: "1.2rem" }}>
+          <li>شغّل الخادم على استضافة تدعم Node (VPS أو ما يشابهها): <span dir="ltr">npm run build && npm start</span></li>
+          <li>تأكد أن <span dir="ltr">/api/health</span> على نطاقك يرد JSON: <span dir="ltr">{`{"ok":true}`}</span></li>
+          <li>إن كانت الواجهة على نطاق منفصل: اضبط <span dir="ltr">VITE_API_URL</span> على عنوان الخادم أثناء البناء.</li>
+        </ul>
+        <button className="btn block" type="button" onClick={() => window.location.reload()}>إعادة المحاولة</button>
+      </div>
+    </div>
+  );
 }
 
 export default function App() {

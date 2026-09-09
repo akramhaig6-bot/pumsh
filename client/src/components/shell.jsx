@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, NavLink, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useApp } from "../store.jsx";
 import { api } from "../lib/api.jsx";
-import { Avatar } from "./ui.jsx";
+import { Avatar, Field } from "./ui.jsx";
 
 /* =================== غلاف الموقع العام =================== */
 export function PublicLayout() {
@@ -197,6 +197,12 @@ export function AdminLayout() {
     if (meReady && user && user.role !== "admin") nav("/", { replace: true });
   }, [meReady, user, nav]);
   if (!meReady || !user || user.role !== "admin") return null;
+
+  /* حساب إداري بكلمة مرور مؤقتة: كل طلبات /api/admin تعيد 403 حتى تُغيَّر
+     كلمة المرور أولاً — فلا نُحمّل أي صفحة بيانات (كانت تُظهر أخطاء
+     «تعذر تنفيذ الطلب») ونعرض نموذج التغيير فقط. */
+  if (user.must_change) return <MustChangePassword />;
+
   return (
     <div className="admin">
       <aside className="admin-side">
@@ -215,17 +221,61 @@ export function AdminLayout() {
         <a href="#" onClick={(e) => { e.preventDefault(); nav("/"); }}>🌐 عرض الموقع</a>
       </aside>
       <main className="admin-main">
-        {user.must_change ? (
-          <div className="card" style={{ margin: "1rem", borderColor: "var(--warn)", background: "#fff7e6" }}>
-            <b>كلمة مرورك الحالية مؤقتة</b>
-            <p className="small muted" style={{ margin: ".35rem 0 .75rem" }}>
-              يجب تغيير كلمة المرور المؤقتة أولاً — بقية بيانات لوحة الإدارة لن تُحمّل قبل ذلك.
-            </p>
-            <Link className="btn sm" to="/admin/me">تغيير كلمة المرور الآن</Link>
-          </div>
-        ) : null}
         <Outlet />
       </main>
+    </div>
+  );
+}
+
+/* بوابة كلمة المرور المؤقتة — تُعرض بدل لوحة الإدارة حتى يغيّر الأدمن
+   كلمة المرور المؤقتة (must_change=1). */
+function MustChangePassword() {
+  const { user, toast, setAuth } = useApp();
+  const [pw, setPw] = useState({ current: "", password: "", confirm: "" });
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
+
+  const submit = async (e) => {
+    e.preventDefault();
+    setErr("");
+    if (pw.password !== pw.confirm) { setErr("كلمتا المرور غير متطابقتين"); return; }
+    setBusy(true);
+    try {
+      await api("/api/auth/change-password", {
+        method: "POST",
+        body: { current: pw.current, password: pw.password, confirm: pw.confirm },
+      });
+      setAuth({ ...user, must_change: 0 });
+      toast("تم تغيير كلمة المرور — أهلاً بك في لوحة الإدارة");
+    } catch (e2) {
+      setErr(e2.message || "تعذر تنفيذ الطلب");
+    }
+    setBusy(false);
+  };
+
+  return (
+    <div className="wrap" style={{ maxWidth: 460, padding: "3rem 1rem 4rem" }}>
+      <div className="card">
+        <div className="center" style={{ marginBottom: "1.2rem" }}>
+          <h1 style={{ marginBottom: ".1em" }}>تغيير كلمة المرور المؤقتة</h1>
+          <p className="muted small" style={{ margin: 0 }}>
+            حسابك الإداري يستخدم كلمة مرور مؤقتة، ولوحة الإدارة لا تُفتح قبل تغييرها (حماية أمنية).
+          </p>
+        </div>
+        {err && <div className="alert err">{err}</div>}
+        <form onSubmit={submit}>
+          <Field label="كلمة المرور الحالية (المؤقتة)" req>
+            <input dir="ltr" type="password" required autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} />
+          </Field>
+          <Field label="كلمة المرور الجديدة" req>
+            <input dir="ltr" type="password" required autoComplete="new-password" value={pw.password} onChange={(e) => setPw({ ...pw, password: e.target.value })} />
+          </Field>
+          <Field label="تأكيد كلمة المرور الجديدة" req>
+            <input dir="ltr" type="password" required autoComplete="new-password" value={pw.confirm} onChange={(e) => setPw({ ...pw, confirm: e.target.value })} />
+          </Field>
+          <button className="btn lg block" disabled={busy}>{busy ? "جارٍ الحفظ..." : "تغيير والمتابعة إلى اللوحة"}</button>
+        </form>
+      </div>
     </div>
   );
 }
