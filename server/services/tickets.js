@@ -15,7 +15,7 @@ export function detail(ticketId, viewer) {
     return null; // عدم كشف
   const user = one("SELECT id,name,email,phone,active,created_at FROM users WHERE id=?", t.user_id);
   const req = t.request_id
-    ? one("SELECT id,status,offer_id FROM requests WHERE id=?", t.request_id)
+    ? one("SELECT id,seq,status,offer_id FROM requests WHERE id=?", t.request_id)
     : null;
   const offer = req ? one("SELECT id,title,status FROM offers WHERE id=?", req.offer_id) : null;
   const replies = all("SELECT * FROM ticket_replies WHERE ticket_id=? ORDER BY created_at ASC", ticketId);
@@ -31,11 +31,11 @@ export function addReply(ticketId, actor, text, files = []) {
       // إعادة فتح: مغلقة → معاد فتحها (ثم تعامل كبانتظار رد الإدارة)
       updateStatus(t, "reopened", actor);
     } else if (!["open", "processing", "waiting_client", "waiting_admin", "reopened"].includes(t.status)) {
-      throw httpError(409, "لا يمكن إضافة رد في الحالة الحالية");
+      throw httpError(409, "لا يمكن إضافة رد على التذكرة في وضعها الحالي");
     }
   } else {
     if (!["open", "processing", "waiting_admin", "reopened"].includes(t.status))
-      throw httpError(409, "لا يمكن الرد في هذه الحالة؛ يمكنك إغلاق التذكرة فقط");
+      throw httpError(409, "لا يمكن الرد على التذكرة في وضعها الحالي");
   }
 
   const to =

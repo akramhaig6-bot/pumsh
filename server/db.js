@@ -276,6 +276,17 @@ function ensureColumn(table, col, ddl) {
 }
 ensureColumn("requests", "files", "files TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("tickets", "files", "files TEXT NOT NULL DEFAULT '[]'");
+/* أرقام متسلسلة إنسانية للعرض على العملاء ("طلب رقم 1042") بدل المعرفات التقنية */
+ensureColumn("requests", "seq", "seq INTEGER");
+ensureColumn("tickets", "seq", "seq INTEGER");
+try {
+  db.exec(`UPDATE requests SET seq = sub.rn FROM
+    (SELECT id, COALESCE((SELECT MAX(seq) FROM requests), 1000) + ROW_NUMBER() OVER (ORDER BY created_at, id) AS rn
+     FROM requests WHERE seq IS NULL) sub WHERE requests.id = sub.id`);
+  db.exec(`UPDATE tickets SET seq = sub.rn FROM
+    (SELECT id, COALESCE((SELECT MAX(seq) FROM tickets), 1000) + ROW_NUMBER() OVER (ORDER BY created_at, id) AS rn
+     FROM tickets WHERE seq IS NULL) sub WHERE tickets.id = sub.id`);
+} catch { /* قاعدة جديدة أو لا صفوف قديمة — لا شيء للترقيم */ }
 
 /** تنفيذ عدة أوامر داخل معاملة */
 export function tx(fn) {

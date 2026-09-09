@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { run, one, now } from "../db.js";
-import { uid, token, sha256, createSession, revokeAllSessions, verifyPassword, hashPassword, unreadCount } from "../lib/util.js";
+import { uid, token, sha256, createSession, revokeAllSessions, verifyPassword, hashPassword, unreadCount, arMinutes } from "../lib/util.js";
 import { parse, failure, asyncH, requireAuth, requestIp, setCSRFCookie } from "../lib/http.js";
 import { registerSchema, loginSchema, forgotSchema, resetSchema, changePasswordSchema, profileSchema, createCaptcha, verifyCaptcha } from "../lib/validate.js";
 import { sendMail } from "../lib/mailer.js";
@@ -42,7 +42,7 @@ auth.post("/register", asyncH(async (req, res) => {
   const value = r.value;
   const settings = getSettings();
   if (!settings.allowRegistration)
-    return failure(res, 403, "التسجيل مغلق حالياً من قبل الإدارة");
+    return failure(res, 403, "التسجيل متوقف مؤقتاً، يرجى العودة لاحقاً");
   if (one("SELECT id FROM users WHERE email=?", value.email))
     return failure(res, 409, "هذا البريد مسجل بالفعل، يمكنك تسجيل الدخول");
   const { salt, hash } = hashPassword(value.password);
@@ -82,19 +82,19 @@ auth.post("/login", asyncH(async (req, res) => {
   // حظر مؤقت
   if (u.locked_until && new Date(u.locked_until) > new Date()) {
     const mins = Math.ceil((new Date(u.locked_until) - new Date()) / 60000);
-    return failure(res, 423, `تجاوزت عدد المحاولات المسموحة، حاول بعد ${mins} دقيقة`);
+    return failure(res, 423, `تم إيقاف المحاولات مؤقتاً لحماية حسابك، يرجى المحاولة بعد ${arMinutes(mins)}`);
   }
 
   // كابتشا بعد 3 محاولات فاشلة
   if (u.failed >= config.loginCaptchaAfter) {
     if (!value.captchaId || !verifyCaptcha(value.captchaId, value.captchaAnswer)) {
-      return failure(res, 428, "أكمل تحدي الأمان أولاً", { captchaRequired: true });
+      return failure(res, 428, "لحماية حسابك بعد عدة محاولات، يرجى حل المسألة البسيطة أدناه", { captchaRequired: true });
     }
   }
 
   if (!u.active) {
     logEvent({ type: "user.login_failed", actorType: "system", entityType: "user", entityId: u.id, details: { reason: "disabled" }, ip: requestIp(req) });
-    return failure(res, 403, "حسابك معطل، يرجى التواصل مع الإدارة");
+    return failure(res, 403, "تم إيقاف حسابك، يرجى التواصل معنا عبر صفحة «تواصل معنا»");
   }
 
   if (!verifyPassword(value.password, u.salt, u.pass_hash)) {
@@ -108,7 +108,7 @@ auth.post("/login", asyncH(async (req, res) => {
       type: "user.login_failed", actorType: "system", entityType: "user", entityId: u.id,
       details: { reason: "bad_credentials", attempts: failed, locked: !!lockedUntil }, ip: requestIp(req),
     });
-    if (lockedUntil) return failure(res, 423, `تجاوزت عدد المحاولات المسموحة، حاول بعد ${config.loginLockMinutes} دقيقة`);
+    if (lockedUntil) return failure(res, 423, `تم إيقاف المحاولات مؤقتاً لحماية حسابك، يرجى المحاولة بعد ${arMinutes(config.loginLockMinutes)}`);
     if (failed >= config.loginCaptchaAfter) {
       return failure(res, 401, "البريد أو كلمة المرور غير صحيحة", { captchaRequired: true });
     }
@@ -136,16 +136,16 @@ auth.post("/admin/login", asyncH(async (req, res) => {
   }
   if (u.locked_until && new Date(u.locked_until) > new Date()) {
     const mins = Math.ceil((new Date(u.locked_until) - new Date()) / 60000);
-    return failure(res, 423, `تجاوزت عدد المحاولات المسموحة، حاول بعد ${mins} دقيقة`);
+    return failure(res, 423, `تم إيقاف المحاولات مؤقتاً لحماية الحساب، يرجى المحاولة بعد ${arMinutes(mins)}`);
   }
   if (u.failed >= config.loginCaptchaAfter) {
     if (!value.captchaId || !verifyCaptcha(value.captchaId, value.captchaAnswer)) {
-      return failure(res, 428, "أكمل تحدي الأمان أولاً", { captchaRequired: true });
+      return failure(res, 428, "لحماية الحساب بعد عدة محاولات، يرجى حل المسألة البسيطة أدناه", { captchaRequired: true });
     }
   }
   if (!u.active) {
     logEvent({ type: "admin.login_failed", actorType: "system", entityType: "user", entityId: u.id, details: { reason: "disabled" }, ip: requestIp(req) });
-    return failure(res, 403, "الحساب معطل، يرجى التواصل مع أدمن نشط");
+    return failure(res, 403, "تم إيقاف هذا الحساب الإداري، يرجى التواصل مع مشرف آخر");
   }
   if (!verifyPassword(value.password, u.salt, u.pass_hash)) {
     const failed = u.failed + 1;
@@ -154,7 +154,7 @@ auth.post("/admin/login", asyncH(async (req, res) => {
       lockedUntil = new Date(Date.now() + config.loginLockMinutes * 60000).toISOString();
     run("UPDATE users SET failed=?, locked_until=COALESCE(?,locked_until) WHERE id=?", failed, lockedUntil, u.id);
     logEvent({ type: "admin.login_failed", actorType: "system", entityType: "user", entityId: u.id, details: { attempts: failed, locked: !!lockedUntil }, ip: requestIp(req) });
-    if (lockedUntil) return failure(res, 423, `تجاوزت العدد المسموح، حاول بعد ${config.loginLockMinutes} دقيقة`);
+    if (lockedUntil) return failure(res, 423, `تم إيقاف المحاولات مؤقتاً لحماية الحساب، يرجى المحاولة بعد ${arMinutes(config.loginLockMinutes)}`);
     if (failed >= config.loginCaptchaAfter) return failure(res, 401, "البريد أو كلمة المرور غير صحيحة", { captchaRequired: true });
     return failure(res, 401, "البريد أو كلمة المرور غير صحيحة");
   }
@@ -214,7 +214,7 @@ auth.post("/reset", asyncH(async (req, res) => {
   const { value, error } = parse(resetSchema, req.body);
   if (error) return failure(res, 422, error);
   const row = one("SELECT * FROM reset_tokens WHERE token_hash=?", sha256(value.token));
-  const invalid = () => failure(res, 400, "الرابط غير صالح أو منتهي الصلاحية");
+  const invalid = () => failure(res, 400, "انتهت صلاحية رابط الاستعادة (صالح لمدة ساعة واحدة)، يرجى طلب رابط جديد");
   if (!row) return invalid();
   if (row.used_at) return invalid();
   if (new Date(row.expires_at) <= new Date()) return invalid();

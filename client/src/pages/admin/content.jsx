@@ -11,7 +11,7 @@ import { useApp } from "../../store.jsx";
 function Slug({ value, onChange }) {
   return (
     <div className="field">
-      <label>المعرف (slug) <span className="muted">— يظهر في الرابط</span></label>
+      <label>الرابط المختصر <span className="muted">— يظهر في رابط الصفحة، أحرف إنجليزية صغيرة وأرقام وشرطات (مثال: about-us)</span></label>
       <input dir="ltr" value={value} onChange={(e) => onChange(String(e.target.value).toLowerCase())} placeholder="example-slug" />
     </div>
   );
@@ -496,7 +496,7 @@ export function Menus() {
                 <option value="category">تصنيف مقالات</option><option value="section">قسم رئيسي (#)</option>
               </select>
             </Field>
-            <Field label="الوجهة" req hint={editing.destination === "page" ? "مثال: about أو privacy أو terms أو contact" : editing.destination === "category" ? "معرف التصنيف" : editing.destination === "section" ? "offers أو articles" : "مثال: /offers"}>
+            <Field label="الوجهة" req hint={editing.destination === "page" ? "مثال: about أو privacy أو terms أو contact" : editing.destination === "category" ? "الرمز المختصر للتصنيف (مثال: news)" : editing.destination === "section" ? "offers أو articles" : "مثال: /offers"}>
               <input dir="ltr" required value={editing.target || ""} onChange={(e) => setEditing({ ...editing, target: e.target.value })} />
             </Field>
             <div className="row2">

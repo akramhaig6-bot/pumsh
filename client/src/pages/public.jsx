@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, qs, fmtDate, absUrl } from "../lib/api.jsx";
+import { api, qs, fmtDate, absUrl, useMaxFileMB } from "../lib/api.jsx";
 import { Spinner, Empty, Badge, Pager } from "../components/ui.jsx";
 import { OFFER_STATUSES, ARTICLE_STATUSES } from "../lib/api.jsx";
 import { useApp } from "../store.jsx";
@@ -98,10 +98,13 @@ export function Offers() {
   const [page, setPage] = useState(1);
   const [q, setQ] = useState("");
   const [qv, setQv] = useState("");
+  const [loadErr, setLoadErr] = useState("");
+  const [tick, setTick] = useState(0);
 
   useEffect(() => {
-    api(`/api/offers${qs({ page, q })}`).then(setD).catch((e) => alert(e.message));
-  }, [page, q]);
+    setLoadErr("");
+    api(`/api/offers${qs({ page, q })}`).then(setD).catch((e) => setLoadErr(e.message));
+  }, [page, q, tick]);
 
   return (
     <div className="wrap" style={{ padding: "2rem 1rem" }}>
@@ -113,7 +116,8 @@ export function Offers() {
           {qv && <button type="button" className="btn sm secondary" onClick={() => { setQ(""); setQv(""); setPage(1); }}>مسح</button>}
         </form>
       </div>
-      {!d ? <Spinner /> : d.offers?.length ? (
+      {loadErr ? <div className="card"><Empty icon="⚠️" title="تعذر تحميل العروض" sub={loadErr} /><div className="center" style={{ paddingBottom: "1rem" }}><button className="btn" onClick={() => setTick((t) => t + 1)}>إعادة المحاولة</button></div></div>
+      : !d ? <Spinner /> : d.offers?.length ? (
         <>
           <div className="grid cols3">
             {d.offers.map((o) => <OfferCard key={o.id} o={o} />)}
@@ -134,8 +138,10 @@ export function OfferDetail() {
   const [form, setForm] = useState({ notes: "" });
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
+  const [loadErr, setLoadErr] = useState("");
+  const maxMB = useMaxFileMB();
 
-  useEffect(() => { api(`/api/offers/${id}`).then(setD).catch((e) => alert(e.message)); }, [id]);
+  useEffect(() => { api(`/api/offers/${id}`).then((r) => { setD(r); setLoadErr(""); }).catch((e) => setLoadErr(e.message)); }, [id]);
 
   const submit = async (e) => {
     e.preventDefault();
@@ -148,10 +154,14 @@ export function OfferDetail() {
       const r = await api("/api/client/requests", { method: "POST", form: fd });
       toast("تم إرسال طلبك بنجاح");
       nav(`/account/requests/${r.request.id}`);
-    } catch (err) { toast(err.message, "err"); }
+    } catch (err) {
+      if (err.data?.requestId) { toast("لديك طلب جارٍ لهذا العرض بالفعل", "info"); nav(`/account/requests/${err.data.requestId}`); }
+      else toast(err.message, "err");
+    }
     setBusy(false);
   };
 
+  if (loadErr) return <div className="wrap" style={{ padding: "2rem 1rem" }}><div className="card"><Empty icon="⚠️" title="تعذر تحميل العرض" sub={loadErr} /><div className="center" style={{ paddingBottom: "1rem" }}><Link className="btn secondary" to="/offers">عودة إلى العروض</Link></div></div></div>;
   if (!d) return <Spinner />;
   return (
     <div className="wrap" style={{ padding: "2rem 1rem" }}>
@@ -180,10 +190,19 @@ export function OfferDetail() {
         <div>
           <div className="card" style={{ position: "sticky", top: "1rem" }}>
             <h3>قدّم طلبك</h3>
-            {!user && <div className="alert info">سجّل الدخول أولاً لإرسال طلب — <Link to={`/login?next=/offers/${id}`}>تسجيل الدخول</Link></div>}
-            {d.activeRequestId ? (
-              <div className="alert ok">لديك طلب نشط لهذا العرض: <Link to={`/account/requests/${d.activeRequestId}`}>متابعة الطلب</Link></div>
-            ) : user?.role === "client" && !d.expired ? (
+            {d.expired ? (
+              <div className="alert warn">انتهت فترة هذا العرض — لا يمكن إرسال طلبات جديدة.</div>
+            ) : !user ? (
+              <>
+                <p className="muted small">لتقديم طلب على هذا العرض تحتاج إلى حساب عميل.</p>
+                <div className="flex">
+                  <Link className="btn" to={`/login?next=/offers/${id}`}>تسجيل الدخول</Link>
+                  <Link className="btn secondary" to={`/register?next=/offers/${id}`}>إنشاء حساب</Link>
+                </div>
+              </>
+            ) : d.activeRequestId ? (
+              <div className="alert ok">لديك طلب جارٍ لهذا العرض: <Link to={`/account/requests/${d.activeRequestId}`}>متابعة الطلب</Link></div>
+            ) : user?.role === "client" ? (
               <form onSubmit={submit}>
                 <div className="field">
                   <label className="req">وصف احتياجك / ملاحظات</label>
@@ -197,15 +216,12 @@ export function OfferDetail() {
                       accept=".pdf,.doc,.docx,image/jpeg,image/png,image/webp,image/svg+xml"
                       onChange={(e) => setFiles([...e.target.files])} />
                   </label>
-                  <div className="hint">الحد الأقصى 5 ميغابايت للملف، والصيغ: JPG, PNG, WEBP, SVG, PDF, DOC, DOCX</div>
+                  <div className="hint">حتى 8 ملفات — {maxMB} ميغابايت للملف كحد أقصى — JPG, PNG, PDF, DOC</div>
                 </div>
-                {d.expired && <div className="alert warn">انتهت فترة هذا العرض — لا يمكن إرسال طلبات جديدة.</div>}
-                <button className="btn lg block" disabled={busy}>{busy ? "جارٍ الإرسال..." : "إرسال الطلب"}</button>
+                <button className="btn lg block" disabled={busy}>{busy ? "جارٍ إرسال الطلب..." : "إرسال الطلب"}</button>
               </form>
-            ) : user?.role === "admin" ? (
-              <div className="alert info">أنت مشرف — الطلبات تُقدم من حساب عميل.</div>
             ) : (
-              <div className="alert warn">إنشاء حساب عميل للتمكن من تقديم الطلب.</div>
+              <div className="alert info">أنت مشرف — الطلبات تُقدم من حساب عميل.</div>
             )}
           </div>
         </div>
@@ -221,11 +237,14 @@ export function Articles() {
   const [d, setD] = useState(null);
   const [page, setPage] = useState(1);
   const cat = sp.get("category") || "";
-  useEffect(() => { api(`/api/articles${qs({ page, category: cat })}`).then(setD).catch(() => {}); }, [page, cat]);
+  const [loadErr, setLoadErr] = useState("");
+  const [tick, setTick] = useState(0);
+  useEffect(() => { setLoadErr(""); api(`/api/articles${qs({ page, category: cat })}`).then(setD).catch((e) => setLoadErr(e.message)); }, [page, cat, tick]);
   return (
     <div className="wrap" style={{ padding: "2rem 1rem" }}>
       <h1>المقالات والمواضيع</h1>
-      {!d ? <Spinner /> : d.articles?.length ? (
+      {loadErr ? <div className="card"><Empty icon="⚠️" title="تعذر تحميل المقالات" sub={loadErr} /><div className="center" style={{ paddingBottom: "1rem" }}><button className="btn" onClick={() => setTick((t) => t + 1)}>إعادة المحاولة</button></div></div>
+      : !d ? <Spinner /> : d.articles?.length ? (
         <>
           <div className="grid cols3">
             {d.articles.map((a) => <ArticleCard key={a.id} a={a} />)}
@@ -240,7 +259,9 @@ export function Articles() {
 export function ArticleDetail() {
   const { id } = useParams();
   const [d, setD] = useState(null);
-  useEffect(() => { api(`/api/articles/${id}`).then(setD).catch((e) => alert(e.message)); }, [id]);
+  const [loadErr, setLoadErr] = useState("");
+  useEffect(() => { api(`/api/articles/${id}`).then((r) => { setD(r); setLoadErr(""); }).catch((e) => setLoadErr(e.message)); }, [id]);
+  if (loadErr) return <div className="wrap" style={{ padding: "2rem 1rem" }}><div className="card"><Empty icon="⚠️" title="تعذر تحميل المقال" sub={loadErr} /><div className="center" style={{ paddingBottom: "1rem" }}><Link className="btn secondary" to="/articles">عودة إلى المقالات</Link></div></div></div>;
   if (!d) return <Spinner />;
   return (
     <div className="wrap" style={{ padding: "2rem 1rem", maxWidth: 820 }}>

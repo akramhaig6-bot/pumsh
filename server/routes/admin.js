@@ -1,7 +1,7 @@
 import { Router } from "express";
 import fs from "node:fs";
 import { run, one, all, now } from "../db.js";
-import { uid, pager, jsonParse, hashPassword, revokeAllSessions, escapeLike, byName } from "../lib/util.js";
+import { uid, pager, jsonParse, hashPassword, revokeAllSessions, escapeLike, byName, arCount } from "../lib/util.js";
 import { parse, failure, asyncH, requireAuth, requestIp } from "../lib/http.js";
 import { uploader, validateFile, toAttachment, toPublicAttachment } from "../lib/upload.js";
 import { offerSchema, adminSchema, resetByAdminSchema, nameS, emailS } from "../lib/validate.js";
@@ -48,12 +48,12 @@ admin.get("/stats", (req, res) => {
       unread: q("SELECT COUNT(*) c FROM notifications WHERE user_id=? AND read=0", req.user.id),
     },
     needsActionRequests: all(
-      `SELECT r.id,r.status,o.title offer_title,u.name user_name,r.created_at FROM requests r
+      `SELECT r.id,r.seq,r.status,o.title offer_title,u.name user_name,r.created_at FROM requests r
        LEFT JOIN offers o ON o.id=r.offer_id LEFT JOIN users u ON u.id=r.user_id
        WHERE r.status IN ('new','info_complete') ORDER BY r.created_at ASC LIMIT 10`,
     ),
     needsReplyTickets: all(
-      `SELECT t.id,t.subject,t.status,t.updated_at,u.name user_name FROM tickets t
+      `SELECT t.id,t.seq,t.subject,t.status,t.updated_at,u.name user_name FROM tickets t
        LEFT JOIN users u ON u.id=t.user_id
        WHERE t.status IN ('open','waiting_admin','reopened') ORDER BY t.updated_at ASC LIMIT 10`,
     ),
@@ -90,7 +90,7 @@ admin.post("/offers", asyncH(async (req, res) => {
   if (status === "published") {
     const miss = [];
     if (!r.value.image) miss.push("image");
-    if (miss.length) return failure(res, 422, "الصورة الرئيسية مطلوبة للنشر", { fields: { image: "مطلوب" } });
+    if (miss.length) return failure(res, 422, "الصورة الرئيسية مطلوبة للنشر", { fields: { image: "يرجى اختيار الصورة الرئيسية" } });
   }
   const id = uid("OFF");
   run(
@@ -114,7 +114,7 @@ admin.put("/offers/:id", (req, res) => {
   if (!cur) return failure(res, 404, "العرض لم يعد موجوداً");
   const base = Number(req.body.baseVersion || 0);
   if (base && base !== cur.version)
-    return failure(res, 409, "تم تعديل هذا العرض من قبل مستخدم آخر بعد فتحك للصفحة", { code: "CONFLICT", current: cur });
+    return failure(res, 409, "تم تعديل هذا العرض من مستخدم آخر، يرجى تحديث الصفحة والمحاولة مجدداً", { code: "CONFLICT", current: cur });
   const r = parse(offerSchema, { ...req.body, status: cur.status });
   if (r.error) return failure(res, 422, r.error);
   const next = { ...cur, ...r.value };
@@ -141,7 +141,7 @@ admin.post("/offers/:id/status", (req, res) => {
   const to = String(req.body.to || "");
   const allowedMap = { draft: ["published"], published: ["unpublished"], unpublished: ["published"] };
   if (!allowedMap[cur.status]?.includes(to))
-    return failure(res, 409, "انتقال حالة العرض غير مسموح");
+    return failure(res, 409, "لا يمكن تغيير حالة العرض بهذه الطريقة");
   if (to === "published") {
     if (!cur.image) return failure(res, 422, "الصورة الرئيسية مطلوبة للنشر");
     if (cur.summary.length < 20 || cur.description_html.length < 10)
@@ -149,7 +149,7 @@ admin.post("/offers/:id/status", (req, res) => {
   }
   const activeCount = Number(one("SELECT COUNT(*) c FROM requests WHERE offer_id=? AND status NOT IN ('rejected','cancelled','closed')", cur.id)?.c || 0);
   if (to === "unpublished" && activeCount > 0 && !req.body.confirmed)
-    return failure(res, 409, `هذا العرض له ${activeCount} طلب نشط. تأكيد الإلغاء؟`, { code: "CONFIRM", activeCount });
+    return failure(res, 409, `هذا العرض مرتبط بـ ${arCount(activeCount, { one: "طلب جارٍ واحد", two: "طلبين جاريين", few: "طلبات جارية", many: "طلباً جارياً" })}. إلغاء النشر سيخفيه عن العملاء — هل تريد المتابعة؟`, { code: "CONFIRM", activeCount });
   run("UPDATE offers SET status=?, version=version+1, updated_by=?, updated_at=? WHERE id=?", to, req.user.id, now(), cur.id);
   logEvent({
     type: to === "published" ? "offer.publish" : "offer.unpublish",
@@ -164,9 +164,9 @@ admin.delete("/offers/:id", (req, res) => {
   if (!cur) return failure(res, 404, "العرض لم يعد موجوداً");
   const linked = one("SELECT COUNT(*) c FROM requests WHERE offer_id=?", cur.id).c;
   if (cur.status !== "draft")
-    return failure(res, 409, "لا يحذف إلا العرض المسودة؛ يمكنك إلغاء نشره");
+    return failure(res, 409, "لا يمكن حذف العرض إلا إذا كان مسودة — يمكنك إلغاء نشره بدلاً من ذلك");
   if (linked > 0)
-    return failure(res, 409, "لا يمكن حذف عرض له طلبات مرتبطة، يمكنك إلغاء نشره");
+    return failure(res, 409, "لا يمكن حذف عرض مرتبط بطلبات، يمكنك إلغاء نشره بدلاً من ذلك");
   run("DELETE FROM offers WHERE id=?", cur.id);
   logEvent({ type: "offer.delete", actorType: "admin", actorId: req.user.id, actorName: req.user.name, entityType: "offer", entityId: cur.id, entityLabel: cur.title, ip: requestIp(req) });
   res.json({ ok: true });
@@ -181,7 +181,7 @@ admin.get("/requests", (req, res) => {
   const needs = req.query.needs === "1";
   const starts = needs ? "AND r.status IN ('new','info_complete')" : "";
   const rows = all(
-    `SELECT r.id,r.status,r.created_at,r.updated_at,o.title offer_title,u.name user_name,u.email user_email
+    `SELECT r.id,r.seq,r.status,r.created_at,r.updated_at,o.title offer_title,u.name user_name,u.email user_email
      FROM requests r LEFT JOIN offers o ON o.id=r.offer_id LEFT JOIN users u ON u.id=r.user_id
      WHERE (?='' OR r.id LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\' OR u.email LIKE ? ESCAPE '\\')
        AND (?='' OR r.status=?) AND (?='' OR r.offer_id=?) ${starts}
@@ -214,7 +214,7 @@ admin.post("/requests/:id/transition", asyncH(async (req, res) => {
   const to = String(req.body.to || "");
   const base = Number(req.body.baseVersion || 0);
   if (base && base !== d.version)
-    return failure(res, 409, "تغيرت حالة الطلب، يرجى مراجعة الحالة الحالية", { code: "CONFLICT", request: serialize(d) });
+    return failure(res, 409, "تغيّر الطلب أثناء عملك عليه، يرجى تحديث الصفحة لعرض الوضع الحالي", { code: "CONFLICT", request: serialize(d) });
   const note = String(req.body.note || "").trim();
   const reason = String(req.body.reason || "").trim();
   if (to === "rejected" && reason.length < 10)
@@ -222,17 +222,18 @@ admin.post("/requests/:id/transition", asyncH(async (req, res) => {
   if (to === "cancelled" && reason.length < 10)
     return failure(res, 422, "سبب الإلغاء مطلوب ولا يقل عن 10 أحرف");
   if (to === "info_waiting" && note.length < 10)
-    return failure(res, 422, "اكتب ما هي المعلومات المطلوبة (10 أحرف على الأقل)");
+    return failure(res, 422, "اكتب المعلومات المطلوبة من العميل (10 أحرف على الأقل)");
 
   const after = transition(d.id, to, A(req), { note, reason });
+  const reqNo = d.seq ?? d.id;
   const labels = {
-    review: { title: "طلبك قيد المراجعة", body: `بدأت الإدارة مراجعة طلبك رقم ${d.id}` },
-    info_waiting: { title: "طلبك يحتاج معلومات إضافية", body: `الإدارة تطلب معلومات إضافية على طلبك رقم ${d.id}. المطلوب: ${note.slice(0, 100)}` },
-    accepted: { title: "تم قبول طلبك", body: `تم قبول طلبك رقم ${d.id} على العرض «${d.offer?.title}»` },
-    rejected: { title: "تم رفض طلبك", body: `تم رفض طلبك رقم ${d.id}. السبب: ${reason.slice(0, 100)}` },
-    cancelled: { title: "تم إلغاء طلبك", body: `تم إلغاء طلبك رقم ${d.id} من الإدارة. السبب: ${reason.slice(0, 100)}` },
-    completed: { title: "تم إكمال طلبك", body: `تم إكمال معالجة طلبك رقم ${d.id}${note ? `. ${note}` : ""}` },
-    closed: { title: "تم إغلاق طلبك", body: `تم إغلاق طلبك رقم ${d.id}` },
+    review: { title: "طلبك قيد المراجعة", body: `بدأ فريقنا مراجعة طلبك رقم ${reqNo} على العرض «${d.offer?.title}»` },
+    info_waiting: { title: "طلبك يحتاج معلومات إضافية", body: `نحتاج معلومات إضافية على طلبك رقم ${reqNo}. المطلوب: ${note.slice(0, 100)}` },
+    accepted: { title: "تم قبول طلبك", body: `تم قبول طلبك رقم ${reqNo} على العرض «${d.offer?.title}»` },
+    rejected: { title: "تم رفض طلبك", body: `تم رفض طلبك رقم ${reqNo}. السبب: ${reason.slice(0, 100)}` },
+    cancelled: { title: "تم إلغاء طلبك", body: `تم إلغاء طلبك رقم ${reqNo}. السبب: ${reason.slice(0, 100)}` },
+    completed: { title: "تم إكمال طلبك", body: `تم إكمال معالجة طلبك رقم ${reqNo}${note ? `. ${note}` : ""}` },
+    closed: { title: "تم إغلاق طلبك", body: `تم إغلاق طلبك رقم ${reqNo}. شكراً لثقتك بنا` },
   };
   const lbl = labels[to];
   if (lbl) createNotification({ userId: d.user_id, type: "request", title: lbl.title, body: lbl.body, entityType: "request", entityId: d.id, ip: requestIp(req) });
@@ -273,9 +274,9 @@ admin.get("/users/:id", (req, res) => {
      FROM users u WHERE u.id=? AND u.role='client'`,
     req.params.id,
   );
-  if (!u) return failure(res, 404, "المستخدم غير موجود");
-  const requests = all("SELECT id,status,offer_id,created_at FROM requests WHERE user_id=? ORDER BY created_at DESC LIMIT 5", u.id);
-  const tickets = all("SELECT id,subject,status,updated_at FROM tickets WHERE user_id=? ORDER BY updated_at DESC LIMIT 5", u.id);
+  if (!u) return failure(res, 404, "العميل غير موجود");
+  const requests = all("SELECT id,seq,status,offer_id,created_at FROM requests WHERE user_id=? ORDER BY created_at DESC LIMIT 5", u.id);
+  const tickets = all("SELECT id,seq,subject,status,updated_at FROM tickets WHERE user_id=? ORDER BY updated_at DESC LIMIT 5", u.id);
   const events = all(
     `SELECT id,type,actor_name,details,created_at FROM events WHERE entity_id=? OR actor_id=? ORDER BY created_at DESC LIMIT 10`,
     u.id, u.id,
@@ -285,7 +286,7 @@ admin.get("/users/:id", (req, res) => {
 
 admin.post("/users/:id/toggle", (req, res) => {
   const u = one("SELECT * FROM users WHERE id=? AND role='client'", req.params.id);
-  if (!u) return failure(res, 404, "المستخدم غير موجود");
+  if (!u) return failure(res, 404, "العميل غير موجود");
   const active = req.body.active ? 1 : 0;
   run("UPDATE users SET active=?, updated_at=? WHERE id=?", active, now(), u.id);
   if (!active) revokeAllSessions(u.id);
@@ -300,7 +301,7 @@ admin.post("/users/:id/reset", (req, res) => {
   const r = parse(resetByAdminSchema, req.body);
   if (r.error) return failure(res, 422, r.error);
   const u = one("SELECT * FROM users WHERE id=? AND role='client'", req.params.id);
-  if (!u) return failure(res, 404, "المستخدم غير موجود");
+  if (!u) return failure(res, 404, "العميل غير موجود");
   const { salt, hash } = hashPassword(r.value.temp);
   run("UPDATE users SET pass_hash=?, salt=?, updated_at=? WHERE id=?", hash, salt, now(), u.id);
   revokeAllSessions(u.id);
@@ -319,7 +320,7 @@ admin.get("/tickets", (req, res) => {
   const needs = req.query.needs === "1";
   const starts = needs ? "AND t.status IN ('open','waiting_admin','reopened')" : "";
   const rows = all(
-    `SELECT t.id,t.subject,t.status,t.created_at,t.updated_at,t.request_id,u.name user_name
+    `SELECT t.id,t.seq,t.subject,t.status,t.created_at,t.updated_at,t.request_id,u.name user_name
      FROM tickets t LEFT JOIN users u ON u.id=t.user_id
      WHERE (?='' OR t.id LIKE ? ESCAPE '\\' OR t.subject LIKE ? ESCAPE '\\' OR u.name LIKE ? ESCAPE '\\')
        AND (?='' OR t.status=?) ${starts}
@@ -342,7 +343,8 @@ admin.get("/tickets/:id", (req, res) => {
 
 admin.post("/tickets/:id/reply", uploader.array("files", 6), asyncH(async (req, res) => {
   const text = String(req.body.text || "").trim();
-  if (!text || text.length > 5000) return failure(res, 422, "اكتب رداً أولاً");
+  if (!text) return failure(res, 422, "يرجى كتابة الرد أولاً");
+  if (text.length > 5000) return failure(res, 422, "الرد طويل جداً (الحد 5000 حرف)");
   const t = one("SELECT * FROM tickets WHERE id=?", req.params.id);
   if (!t) return failure(res, 404, "التذكرة غير موجودة");
   const files = [];
@@ -354,8 +356,8 @@ admin.post("/tickets/:id/reply", uploader.array("files", 6), asyncH(async (req, 
   const after = addReply(t.id, A(req), text, files);
   logEvent({ type: "ticket.reply", actorType: "admin", actorId: req.user.id, actorName: req.user.name, entityType: "ticket", entityId: t.id, entityLabel: t.subject, details: { files: files.length }, ip: requestIp(req) });
   createNotification({
-    userId: t.user_id, type: "support", title: "الإدارة ردت على تذكرتك",
-    body: `الإدارة أضافت رداً جديداً على تذكرتك رقم ${t.id}: ${t.subject}`,
+    userId: t.user_id, type: "support", title: "رد جديد من فريق الدعم على تذكرتك",
+    body: `أضاف فريق الدعم رداً جديداً على تذكرتك رقم ${t.seq ?? t.id}: ${t.subject}`,
     entityType: "ticket", entityId: t.id, ip: requestIp(req),
   });
   res.json({ ok: true, ticket: serializeTicket(after) });
@@ -368,7 +370,7 @@ admin.post("/tickets/:id/close", (req, res) => {
   logEvent({ type: "ticket.close", actorType: "admin", actorId: req.user.id, actorName: req.user.name, entityType: "ticket", entityId: t.id, entityLabel: t.subject, ip: requestIp(req) });
   createNotification({
     userId: t.user_id, type: "support", title: "تم إغلاق تذكرتك",
-    body: `تم إغلاق تذكرتك رقم ${t.id}: ${t.subject}. يمكنك إعادة فتحها بإضافة رد جديد`,
+    body: `تم إغلاق تذكرتك رقم ${t.seq ?? t.id}: ${t.subject}. يمكنك إعادة فتحها في أي وقت بإضافة رد جديد`,
     entityType: "ticket", entityId: t.id, ip: requestIp(req),
   });
   res.json({ ok: true });
@@ -404,12 +406,12 @@ admin.post("/admins", (req, res) => {
 
 admin.post("/admins/:id/toggle", (req, res) => {
   const u = one("SELECT * FROM users WHERE id=? AND role='admin'", req.params.id);
-  if (!u) return failure(res, 404, "المستخدم غير موجود");
-  if (u.id === req.user.id) return failure(res, 409, "لا يمكنك تعطيل حسابك بنفسك");
+  if (!u) return failure(res, 404, "المشرف غير موجود");
+  if (u.id === req.user.id) return failure(res, 409, "لا يمكنك تعطيل حسابك الخاص");
   const active = req.body.active ? 1 : 0;
   if (!active) {
     const activeCount = one("SELECT COUNT(*) c FROM users WHERE role='admin' AND active=1").c;
-    if (activeCount <= 1) return failure(res, 409, "لا يمكن تعطيل آخر أدمن نشط في النظام");
+    if (activeCount <= 1) return failure(res, 409, "لا يمكن تعطيل آخر مشرف نشط في النظام");
   }
   run("UPDATE users SET active=?, updated_at=? WHERE id=?", active, now(), u.id);
   if (!active) revokeAllSessions(u.id);
@@ -421,7 +423,7 @@ admin.post("/admins/:id/reset", (req, res) => {
   const r = parse(resetByAdminSchema, req.body);
   if (r.error) return failure(res, 422, r.error);
   const u = one("SELECT * FROM users WHERE id=? AND role='admin'", req.params.id);
-  if (!u) return failure(res, 404, "المستخدم غير موجود");
+  if (!u) return failure(res, 404, "المشرف غير موجود");
   const { salt, hash } = hashPassword(r.value.temp);
   run("UPDATE users SET pass_hash=?, salt=?, must_change=1, updated_at=? WHERE id=?", hash, salt, now(), u.id);
   revokeAllSessions(u.id);

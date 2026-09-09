@@ -10,7 +10,7 @@ export const uploads = Router();
  */
 uploads.post("/", requireAuth, uploader.array("files", 1), (req, res) => {
   const f = req.files?.[0];
-  if (!f) return failure(res, 422, "لم يتم إرسال ملف");
+  if (!f) return failure(res, 422, "يرجى اختيار ملف أولاً ثم الضغط على رفع");
   const err = validateFile(f);
   if (err) return failure(res, 422, err);
   const att = toAttachment(f);

@@ -15,19 +15,19 @@ export const files = Router();
 files.get("/", requireAuth, (req, res) => {
   const p = String(req.query.p || "");
   if (!/^(attachments|media)\/[A-Za-z0-9._-]+$/.test(p))
-    return res.status(400).json({ ok: false, error: "مسار غير صالح" });
+    return res.status(400).json({ ok: false, error: "الملف المطلوب غير متوفر" });
   const user = req.user;
 
   if (user.role !== "admin") {
     const owns = ownsPath(user.id, p);
     if (!owns) {
-      return res.status(404).json({ ok: false, error: "العنصر غير موجود أو ليس لديك صلاحية للوصول إليه" });
+      return res.status(404).json({ ok: false, error: "الملف غير موجود أو ليس لديك صلاحية للوصول إليه" });
     }
   }
 
   const abs = path.join(config.dataDir, "uploads", p);
   if (!abs.startsWith(config.dataDir) || !fs.existsSync(abs))
-    return res.status(404).json({ ok: false, error: "الملف غير موجود" });
+    return res.status(404).json({ ok: false, error: "الملف المطلوب غير متوفر أو تم حذفه" });
 
   const base = path.basename(p);
   const meta = findMeta(user.id, p);

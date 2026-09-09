@@ -59,11 +59,11 @@ export function Login() {
           <input dir="ltr" type="password" required value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} />
         </Field>
         {captcha && (
-          <Field label={`تحدي الأمان: ${captcha.question}`} req>
+          <Field label={`تحقق أمني: ${captcha.question}`} req hint="يظهر هذا التحقق لحماية حسابك بعد عدة محاولات غير ناجحة">
             <input dir="ltr" inputMode="numeric" value={f.captchaAnswer || ""} onChange={(e) => setF({ ...f, captchaAnswer: e.target.value })} />
           </Field>
         )}
-        <button className="btn lg block" disabled={busy}>{busy ? "جارٍ..." : "دخول"}</button>
+        <button className="btn lg block" disabled={busy}>{busy ? "جارٍ تسجيل الدخول..." : "دخول"}</button>
       </form>
       <div className="flex between" style={{ marginTop: "1rem" }}>
         <Link className="small" to="/forgot">نسيت كلمة المرور؟</Link>
@@ -106,11 +106,11 @@ export function AdminLogin() {
         <Field label="بريد المشرف" req><input dir="ltr" type="email" required value={f.email} onChange={(e) => setF({ ...f, email: e.target.value })} /></Field>
         <Field label="كلمة المرور" req><input dir="ltr" type="password" required value={f.password} onChange={(e) => setF({ ...f, password: e.target.value })} /></Field>
         {captcha && (
-          <Field label={`تحدي الأمان: ${captcha.question}`} req>
+          <Field label={`تحقق أمني: ${captcha.question}`} req hint="يظهر هذا التحقق لحماية حسابك بعد عدة محاولات غير ناجحة">
             <input dir="ltr" inputMode="numeric" value={f.captchaAnswer || ""} onChange={(e) => setF({ ...f, captchaAnswer: e.target.value })} />
           </Field>
         )}
-        <button className="btn lg block" disabled={busy}>{busy ? "جارٍ..." : "دخول"}</button>
+        <button className="btn lg block" disabled={busy}>{busy ? "جارٍ تسجيل الدخول..." : "دخول"}</button>
       </form>
       <div className="center mt1"><Link className="small" to="/login">← عودة لصفحة العميل</Link></div>
     </>,
@@ -124,23 +124,26 @@ export function Register() {
   const next = sp.get("next") || "/account";
   const [f, setF] = useState({ name: "", email: "", phone: "", password: "", confirm: "", terms: false });
   const [errs, setErrs] = useState({});
+  const [topErr, setTopErr] = useState("");
   const [busy, setBusy] = useState(false);
 
-  const err = async (e) => {
+  const err = async () => {
+    setTopErr("");
     try {
       const d = await api("/api/auth/register", { method: "POST", body: f });
       setAuth(d.user);
-      toast("تم إنشاء حسابك بنجاح");
+      toast("تم إنشاء حسابك بنجاح، أهلاً بك");
       nav(next, { replace: true });
     } catch (e2) {
       setErrs(e2.data?.fields || {});
-      alert(e2.message + (e2.data?.fields ? " — راجع الحقول المميزة" : ""));
+      setTopErr(e2.data?.fields ? `${e2.message} — راجع الحقول المميزة أدناه` : e2.message);
     }
     setBusy(false);
   };
 
   return shell("إنشاء حساب جديد", "سجّل لتقديم الطلبات ومتابعتها أولاً بأول",
     <>
+      {topErr && <div className="alert err">{topErr}</div>}
       <form onSubmit={(e) => { e.preventDefault(); setBusy(true); err(); }}>
         <Field label="الاسم الكامل" req error={errs.name}>
           <input required value={f.name} onChange={(e) => setF({ ...f, name: e.target.value })} />
@@ -165,9 +168,9 @@ export function Register() {
         <label className="check" style={{ marginBottom: "1rem" }}>
           <input type="checkbox" required checked={f.terms}
             onChange={(e) => setF({ ...f, terms: e.target.checked })} />
-          أوافق على الشروط والأحكام وسياسة الخصوصية
+          <span>أوافق على <Link to="/page/terms" onClick={(e) => e.stopPropagation()}>الشروط والأحكام</Link> و<Link to="/page/privacy" onClick={(e) => e.stopPropagation()}>سياسة الخصوصية</Link></span>
         </label>
-        <button className="btn lg block" disabled={busy}>{busy ? "جارٍ..." : "إنشاء الحساب"}</button>
+        <button className="btn lg block" disabled={busy}>{busy ? "جارٍ إنشاء الحساب..." : "إنشاء الحساب"}</button>
       </form>
       <div className="center mt1"><Link className="small" to="/login">لديك حساب؟ سجّل الدخول</Link></div>
     </>,
@@ -178,20 +181,22 @@ export function Forgot() {
   const [email, setEmail] = useState("");
   const [done, setDone] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState("");
   const submit = async (e) => {
-    e.preventDefault(); setBusy(true);
+    e.preventDefault(); setBusy(true); setErr("");
     try { await api("/api/auth/forgot", { method: "POST", body: { email } }); setDone(true); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { setErr(e2.message); }
     setBusy(false);
   };
   return shell("استعادة كلمة المرور", "سنرسل لك رابط إعادة التعيين عبر البريد",
-    done ? <div className="alert ok center">إذا كان البريد مسجلاً، أرسلنا لك رابط إعادة التعيين خلال دقائق. يرجى فحص بريدك.</div>
+    done ? <div className="alert ok center">إذا كان هذا البريد مسجلاً لدينا، أرسلنا لك رابط إعادة التعيين (صالح لمدة ساعة واحدة). يرجى فحص بريدك ومجلد الرسائل غير المرغوب فيها.</div>
     : (
       <form onSubmit={submit}>
+        {err && <div className="alert err">{err}</div>}
         <Field label="بريدك الإلكتروني" req>
           <input dir="ltr" type="email" required value={email} onChange={(e) => setEmail(e.target.value)} />
         </Field>
-        <button className="btn lg block" disabled={busy}>{busy ? "جارٍ..." : "إرسال الرابط"}</button>
+        <button className="btn lg block" disabled={busy}>{busy ? "جارٍ إرسال الرابط..." : "إرسال الرابط"}</button>
       </form>
     ),
   );
@@ -227,7 +232,7 @@ export function Reset() {
           <Field label="التأكيد" req>
             <input dir="ltr" type="password" required value={f.confirm} onChange={(e) => setF({ ...f, confirm: e.target.value })} />
           </Field>
-          <button className="btn lg block" disabled={busy || !token}>{busy ? "جارٍ..." : "تغيير كلمة المرور"}</button>
+          <button className="btn lg block" disabled={busy || !token}>{busy ? "جارٍ تغيير كلمة المرور..." : "تغيير كلمة المرور"}</button>
         </form>
       </>
     ),

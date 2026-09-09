@@ -156,10 +156,10 @@ pub.get("/notifications/unread", requireAuth, (req, res) => {
 pub.get("/up/:name", (req, res) => {
   const name = req.params.name || "";
   if (!/^[A-Za-z0-9._-]+$/.test(name) || name.includes(".."))
-    return failure(res, 400, "مسار غير صالح");
+    return failure(res, 400, "الملف المطلوب غير متوفر");
   const abs = path.join(config.dataDir, "uploads", "media", name);
   if (!abs.startsWith(config.dataDir) || !fs.existsSync(abs))
-    return failure(res, 404, "الملف غير موجود");
+    return failure(res, 404, "الملف المطلوب غير متوفر أو تم حذفه");
   res.setHeader("Cache-Control", "public, max-age=86400, immutable");
   fs.createReadStream(abs).pipe(res);
 });

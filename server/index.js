@@ -99,7 +99,7 @@ app.use("/api/cms", cms);
 app.use("/api/files", files);
 
 /* ---------------- مقاطع غير موجودة من API ---------------- */
-app.use("/api", (req, res) => res.status(404).json({ ok: false, error: "الرابط غير موجود" }));
+app.use("/api", (req, res) => res.status(404).json({ ok: false, error: "الصفحة المطلوبة غير متوفرة" }));
 
 /* ---------------- الواجهة الأمامية ---------------- */
 if (fs.existsSync(distDir)) {
@@ -109,7 +109,7 @@ if (fs.existsSync(distDir)) {
     res.sendFile(path.join(distDir, "index.html"));
   });
 } else {
-  app.get("/", (req, res) => res.send(`<h3>منصة نما — الواجهة غير مبنية بعد</h3><p>شغّل <code>npm run build</code> أو <code>npm run dev</code></p>`));
+  app.get("/", (req, res) => res.status(503).send(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><title>نعود إليك قريباً</title></head><body style="font-family:Tajawal,system-ui,sans-serif;background:#f6f8f7;color:#143d32;display:grid;place-items:center;min-height:90vh;margin:0;text-align:center"><div style="max-width:560px;padding:2rem"><h1 style="font-size:2rem;margin-bottom:.5rem">نعود إليك قريباً</h1><p style="line-height:1.9;opacity:.85">نعمل الآن على تحسين تجربتك. يرجى المحاولة بعد قليل.</p></div></body></html>`));
 }
 
 /* ---------------- الأخطاء ---------------- */

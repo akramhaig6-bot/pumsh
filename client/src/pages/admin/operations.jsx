@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
-import { api, qs, fmtDate, REQUEST_STATUSES, TICKET_STATUSES } from "../../lib/api.jsx";
+import { api, qs, fmtDate, REQUEST_STATUSES, TICKET_STATUSES, requestNo, ticketNo } from "../../lib/api.jsx";
 import { Spinner, Empty, Badge, Pager, Modal, Confirm, Field, FileChips } from "../../components/ui.jsx";
 import { PageHead } from "../../components/shell.jsx";
 import { useApp } from "../../store.jsx";
@@ -47,7 +47,7 @@ export function Requests() {
               <Link key={r.id} to={`/admin/requests/${r.id}`} className="list-row">
                 <div>
                   <div className="t">{r.offer_title}</div>
-                  <div className="s mono">#{r.id} · {r.user_name} ({r.user_email}) · {fmtDate(r.created_at)}</div>
+                  <div className="s">{requestNo(r)} · {r.user_name} ({r.user_email}) · {fmtDate(r.created_at)}</div>
                 </div>
                 <Badge map={REQUEST_STATUSES} value={r.status} />
               </Link>
@@ -107,7 +107,7 @@ export function RequestDetail() {
 
   return (
     <>
-      <PageHead title={`طلب ${r.offer_title}`} sub={`#${r.id} · ${r.user?.name} · ${r.user?.email}`}
+      <PageHead title={`طلب ${r.offer_title}`} sub={`${requestNo(r)} · ${r.user?.name} · ${r.user?.email}`}
         actions={<Link className="btn secondary sm" to="/admin/requests">← كل الطلبات</Link>} />
       <div className="grid" style={{ gridTemplateColumns: "minmax(0,1.4fr) minmax(0,1fr)" }}>
         <div className="card pad0">
@@ -223,7 +223,7 @@ export function Tickets() {
         </div>
         {!d ? <Spinner /> : d.tickets?.length ? d.tickets.map((t) => (
           <Link key={t.id} to={`/admin/tickets/${t.id}`} className="list-row">
-            <div><div className="t">{t.subject}</div><div className="s mono">#{t.id} · {t.user_name} · {fmtDate(t.updated_at)}</div></div>
+            <div><div className="t">{t.subject}</div><div className="s">{ticketNo(t)} · {t.user_name} · {fmtDate(t.updated_at)}</div></div>
             <Badge map={TICKET_STATUSES} value={t.status} />
           </Link>
         )) : <Empty icon="🎧" title="لا تذاكر مطابقة" />}
@@ -255,7 +255,7 @@ export function TicketDetail() {
   };
   const close = async () => {
     setBusy(true);
-    try { await api(`/api/admin/tickets/${id}/close`, { method: "POST" }); load(); toast("أُغلقت التذكرة"); }
+    try { await api(`/api/admin/tickets/${id}/close`, { method: "POST" }); load(); toast("تم إغلاق التذكرة"); }
     catch (e2) { toast(e2.message, "err"); }
     setBusy(false); setConfirmClose(false);
   };
@@ -264,12 +264,12 @@ export function TicketDetail() {
   const t = d.ticket;
   return (
     <>
-      <PageHead title={`تذكرة: ${t.subject}`} sub={`#${t.id} · ${t.user?.name} · ${t.user?.email}`}
+      <PageHead title={`تذكرة: ${t.subject}`} sub={`${ticketNo(t)} · ${t.user?.name} · ${t.user?.email}`}
         actions={<><Link className="btn secondary sm" to="/admin/tickets">← الكل</Link><button className="btn sm danger-soft" disabled={t.status === "closed"} onClick={() => setConfirmClose(true)}>إغلاق</button></>} />
       <div className="card pad0">
         <div className="card-head">
           <Badge map={TICKET_STATUSES} value={t.status} />
-          {t.request && <Link className="small" to={`/admin/requests/${t.request.id}`}>الطلب المرتبط: #{t.request.id}</Link>}
+          {t.request && <Link className="small" to={`/admin/requests/${t.request.id}`}>الطلب المرتبط: طلب رقم {t.request.seq ?? "—"}</Link>}
         </div>
         <div className="card-body">
           <p><b>الرسالة الأصلية:</b></p>
@@ -387,7 +387,7 @@ export function Users() {
               <h4>أقرب الطلبات</h4>
               {detail.requests?.length ? detail.requests.map((r) => (
                 <Link key={r.id} to={`/admin/requests/${r.id}`} className="list-row">
-                  <span className="small mono">#{r.id}</span><Badge map={REQUEST_STATUSES} value={r.status} />
+                  <span className="small">{requestNo(r)}</span><Badge map={REQUEST_STATUSES} value={r.status} />
                 </Link>
               )) : <p className="muted small">لا طلبات</p>}
               <h4>التذاكر</h4>

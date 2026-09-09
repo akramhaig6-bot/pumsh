@@ -24,7 +24,7 @@ export function AppProvider({ children }) {
     const onExpired = () => {
       setUser(null);
       setUnread(0);
-      setToasts((t) => [...t, { id: Date.now(), kind: "err", msg: "انتهت جلستك، سجّل الدخول من جديد" }]);
+      setToasts((t) => [...t, { id: Date.now(), kind: "err", msg: "انتهت جلستك حفاظاً على أمان حسابك، يرجى تسجيل الدخول للمتابعة" }]);
     };
     window.addEventListener("auth:expired", onExpired);
     return () => window.removeEventListener("auth:expired", onExpired);
