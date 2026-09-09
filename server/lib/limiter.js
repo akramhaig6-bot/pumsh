@@ -6,7 +6,7 @@ export const generalLimiter = rateLimit({
   limit: 400,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  message: { error: "طلبات كثيرة جداً، حاول بعد قليل" },
+  message: { ok: false, error: "عدد كبير من الطلبات في وقت قصير، يرجى الانتظار قليلاً والمحاولة مجدداً" },
 });
 
 export const authLimiter = rateLimit({
@@ -14,7 +14,7 @@ export const authLimiter = rateLimit({
   limit: 40,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  message: { error: "محاولات كثيرة جداً، حاول بعد 15 دقيقة" },
+  message: { ok: false, error: "تم إيقاف المحاولات مؤقتاً لمدة 15 دقيقة حفاظاً على الأمان، يرجى المحاولة لاحقاً" },
 });
 
 export const uploadLimiter = rateLimit({
@@ -22,5 +22,5 @@ export const uploadLimiter = rateLimit({
   limit: 60,
   standardHeaders: "draft-7",
   legacyHeaders: false,
-  message: { error: "رفع كثير، حاول بعد قليل" },
+  message: { ok: false, error: "تم تجاوز حد الرفع المسموح مؤقتاً، يرجى الانتظار قليلاً والمحاولة مجدداً" },
 });

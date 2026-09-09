@@ -1,4 +1,5 @@
 /* عميل API موحد — كوكي الجلسة + CSRF + أخطاء عربية */
+import { useEffect, useState } from "react";
 
 /* ===== وضعا النشر المدعومان =====
    1) نفس الأصل (خادم واحد: VPS/سيرفرك): VITE_API_URL غير معرّف → طلبات نسبية
@@ -57,16 +58,19 @@ export async function api(path, { method = "GET", body, form, signal } = {}) {
   if (["POST", "PUT", "PATCH", "DELETE"].includes(method)) {
     opts.headers = { ...(opts.headers || {}), "X-CSRF-Token": csrfHeaderValue() };
   }
-  const res = await fetch(apiUrl(path), opts);
+  /* انقطاع الشبكة/الخادم: رسالة عربية لائقة بدل رسائل المتصفح الإنجليزية الخام */
+  let res;
+  try {
+    res = await fetch(apiUrl(path), opts);
+  } catch {
+    throw new ApiError("تعذر الاتصال بالخادم، تحقق من اتصالك بالإنترنت وحاول مجدداً", 0, {});
+  }
   let data = null;
-  try { data = await res.json(); } catch { /* فارغ */ }
+  try { data = await res.json(); } catch { /* رد غير JSON — يُعامل كعطل خدمة */ }
   if (data && typeof data.csrf === "string" && data.csrf) csrfMem = data.csrf;
   if (!res.ok || !data?.ok) {
-    const msg =
-      data?.error ||
-      (!data
-        ? `تعذر تنفيذ الطلب — استجابة غير متوقعة من الخادم (HTTP ${res.status})`
-        : "تعذر تنفيذ الطلب");
+    /* لا نعرض أبداً رموز HTTP أو تفاصيل تقنية للعميل */
+    const msg = data?.error || "تعذر تنفيذ الطلب، يرجى المحاولة بعد قليل";
     const err = new ApiError(msg, res.status, data);
     if (res.status === 401) window.dispatchEvent(new CustomEvent("auth:expired"));
     throw err;
@@ -144,4 +148,31 @@ export function BADGE(map, key) {
 export function statusBadge(map, key) {
   const m = map[key] || { label: key || "—", color: "gray" };
   return m;
+}
+
+/* صياغة عدد الإشعارات بالعربية: "لا توجد إشعارات جديدة"، "لديك 3 إشعارات جديدة" */
+export function unreadText(n) {
+  const num = Number(n) || 0;
+  if (num === 0) return "لا توجد إشعارات جديدة";
+  if (num === 1) return "لديك إشعار جديد واحد";
+  if (num === 2) return "لديك إشعاران جديدان";
+  if (num <= 10) return `لديك ${num} إشعارات جديدة`;
+  return `لديك ${num} إشعاراً جديداً`;
+}
+
+/* أرقام عرض إنسانية بدل المعرفات التقنية: "طلب رقم 1042" */
+export const requestNo = (r) => `طلب رقم ${r?.seq ?? "—"}`;
+export const ticketNo = (t) => `تذكرة رقم ${t?.seq ?? "—"}`;
+
+/* الحد الأقصى لحجم الملف من إعدادات المنصة (مع تخزين مؤقت) لعرضه في تلميحات الرفع */
+let _maxFileMB = null;
+export function useMaxFileMB() {
+  const [v, setV] = useState(_maxFileMB);
+  useEffect(() => {
+    if (_maxFileMB != null) { setV(_maxFileMB); return; }
+    api("/api/meta")
+      .then((d) => { _maxFileMB = Number(d.meta?.maxFileMB) || 5; setV(_maxFileMB); })
+      .catch(() => setV(5));
+  }, []);
+  return v ?? 5;
 }

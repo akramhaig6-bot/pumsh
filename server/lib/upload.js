@@ -22,14 +22,14 @@ export function extensionFor(mime) {
 }
 
 export function validateFile(file, { imagesOnly = false, maxMB } = {}) {
-  if (!file) return "الملف غير موجود";
+  if (!file) return "يرجى اختيار ملف أولاً";
   if (imagesOnly && !imageMimes.includes(file.mimetype))
-    return "صيغة الصورة غير مدعومة (JPG, PNG, WEBP, SVG)";
+    return "صيغة الصورة غير مدعومة — الصيغ المقبولة: JPG, PNG, WEBP, SVG";
   if (!imagesOnly && !ALLOWED[file.mimetype])
-    return "صيغة الملف غير مدعومة";
+    return "صيغة الملف غير مدعومة — الصيغ المقبولة: JPG, PNG, WEBP, SVG, PDF, DOC, DOCX";
   const max = maxMB || config.maxFileMB;
   if (file.size > max * 1024 * 1024)
-    return `الحد الأقصى ${max} ميغابايت`;
+    return `حجم الملف يتجاوز الحد الأقصى المسموح (${max} ميغابايت)`;
   return null;
 }
 

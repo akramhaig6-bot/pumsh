@@ -2,7 +2,7 @@ import { Router } from "express";
 import path from "node:path";
 import fs from "node:fs";
 import { run, one, all, now } from "../db.js";
-import { uid, pager, escapeLike, jsonParse } from "../lib/util.js";
+import { uid, pager, escapeLike, jsonParse, arCount } from "../lib/util.js";
 import { parse, failure, asyncH, requireAuth, requestIp } from "../lib/http.js";
 import { cleanHtml, articleSchema, pageSchema, categorySchema } from "../lib/validate.js";
 import { toPublicAttachment, uploader, validateFile, persistFile } from "../lib/upload.js";
@@ -66,7 +66,7 @@ cms.put("/articles/:id", (req, res) => {
   const cur = one("SELECT * FROM articles WHERE id=?", req.params.id);
   if (!cur) return failure(res, 404, "المقال غير موجود");
   if (Number(req.body.baseVersion || 0) && Number(req.body.baseVersion) !== cur.version)
-    return failure(res, 409, "تم تعديل هذا المقال من قبل مستخدم آخر", { code: "CONFLICT" });
+    return failure(res, 409, "تم تعديل هذا المقال من مستخدم آخر، يرجى تحديث الصفحة والمحاولة مجدداً", { code: "CONFLICT" });
   const r = parse(articleSchema, { ...req.body, status: cur.status });
   if (r.error) return failure(res, 422, r.error);
   const next = { ...cur, ...r.value };
@@ -103,7 +103,7 @@ cms.post("/pages", asyncH(async (req, res) => {
   const r = parse(pageSchema, req.body);
   if (r.error) return failure(res, 422, r.error);
   const exists = one("SELECT id FROM pages WHERE slug=?", r.value.slug);
-  if (exists) return failure(res, 409, "هذا المعرف مستخدم من قبل صفحة أخرى");
+  if (exists) return failure(res, 409, "الرابط المختصر مستخدم من قبل صفحة أخرى");
   const id = uid("PGE");
   run(
     `INSERT INTO pages (id,title,slug,content_html,status,created_by,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`,
@@ -120,7 +120,7 @@ cms.put("/pages/:id", (req, res) => {
   const r = parse(pageSchema, { ...req.body, status: cur.status });
   if (r.error) return failure(res, 422, r.error);
   if (one("SELECT id FROM pages WHERE slug=? AND id!=?", r.value.slug, cur.id))
-    return failure(res, 409, "هذا المعرف مستخدم من قبل صفحة أخرى");
+    return failure(res, 409, "الرابط المختصر مستخدم من قبل صفحة أخرى");
   run(
     `UPDATE pages SET title=?,slug=?,content_html=?,status=?,updated_by=?,updated_at=? WHERE id=?`,
     r.value.title, r.value.slug, cleanHtml(r.value.content_html), req.body.save === "publish" ? "published" : cur.status,
@@ -178,7 +178,7 @@ cms.delete("/categories/:id", (req, res) => {
   const cur = one("SELECT * FROM categories WHERE id=?", req.params.id);
   if (!cur) return failure(res, 404, "التصنيف غير موجود");
   const used = one("SELECT COUNT(*) c FROM articles WHERE category_id=?", cur.id).c;
-  if (used > 0) return failure(res, 409, `لا يمكن حذف تصنيف مرتبط بـ ${used} مقال`);
+  if (used > 0) return failure(res, 409, `لا يمكن حذف تصنيف مرتبط بـ ${arCount(used, { one: "مقال واحد", two: "مقالين", few: "مقالات", many: "مقالاً" })}`);
   run("DELETE FROM categories WHERE id=?", cur.id);
   logEvent({ type: "category.delete", actorType: "admin", actorId: req.user.id, actorName: req.user.name, entityType: "category", entityId: cur.id, entityLabel: cur.name, ip: requestIp(req) });
   res.json({ ok: true });
@@ -198,7 +198,7 @@ cms.get("/banners", (req, res) => {
 
 cms.post("/banners", (req, res) => {
   const b = req.body || {};
-  if (!String(b.image || "").trim()) return failure(res, 422, "الصورة مطلوبة", { fields: { image: "مطلوب" } });
+  if (!String(b.image || "").trim()) return failure(res, 422, "يرجى اختيار صورة للبانر", { fields: { image: "يرجى اختيار صورة" } });
   const id = uid("BNR");
   run(
     `INSERT INTO banners (id,headline,subline,button_text,button_link,image,related_offer_id,position,status,ord,start_date,end_date,created_at,updated_at)
@@ -245,7 +245,7 @@ cms.get("/menus", (req, res) => {
 cms.post("/menus", (req, res) => {
   const m = req.body || {};
   if (!String(m.name || "").trim()) return failure(res, 422, "اسم القائمة مطلوب");
-  if (!["link", "page", "category", "section"].includes(m.destination)) return failure(res, 422, "نوع الوجهة غير صالح");
+  if (!["link", "page", "category", "section"].includes(m.destination)) return failure(res, 422, "نوع الرابط غير صالح");
   const id = uid("MNU");
   run(
     `INSERT INTO menus (id,name,destination,target,ord,status,created_at,updated_at) VALUES (?,?,?,?,?,?,?,?)`,
@@ -294,8 +294,8 @@ cms.put("/texts/:key", (req, res) => {
 cms.post("/texts", (req, res) => {
   const key = String(req.body.key || "").trim().toLowerCase();
   const value = String(req.body.value || "").trim().slice(0, 3000);
-  if (!/^[a-z0-9._-]{2,80}$/.test(key)) return failure(res, 422, "معرف النص غير صالح");
-  if (one("SELECT key FROM texts WHERE key=?", key)) return failure(res, 409, "هذا المعرف موجود مسبقاً");
+  if (!/^[a-z0-9._-]{2,80}$/.test(key)) return failure(res, 422, "رمز النص غير صالح — استخدم أحرفاً إنجليزية صغيرة وأرقاماً ونقاطاً وشرطات فقط (مثال: home.title)");
+  if (one("SELECT key FROM texts WHERE key=?", key)) return failure(res, 409, "رمز النص هذا مستخدم مسبقاً");
   const id = uid("TXT");
   run(
     `INSERT INTO texts (id,key,grp,description,value,default_value,updated_at) VALUES (?,?,?,?,?,?,?)`,
@@ -340,9 +340,9 @@ cms.post("/media", (req, res) => {
 
 cms.delete("/media/:id", (req, res) => {
   const m = one("SELECT * FROM media WHERE id=?", req.params.id);
-  if (!m) return failure(res, 404, "الملف غير موجود");
+  if (!m) return failure(res, 404, "الملف المطلوب غير موجود");
   const used = all("SELECT path FROM offers WHERE image=? UNION ALL SELECT image FROM articles WHERE image=? UNION ALL SELECT image FROM banners WHERE image=?", m.path, m.path, m.path).length;
-  if (used > 0) return failure(res, 409, "الملف مستخدم في المحتوى، لا يمكن حذفه");
+  if (used > 0) return failure(res, 409, "هذا الملف مستخدم في المحتوى، احذفه من المحتوى أولاً");
   try {
     const abs = path.join(config.dataDir, "uploads", m.path);
     if (abs.startsWith(config.dataDir) && fs.existsSync(abs)) fs.unlinkSync(abs);
@@ -357,7 +357,7 @@ cms.delete("/media/:id", (req, res) => {
 ===================================================================== */
 cms.post("/media/upload", uploader.array("files", 12), (req, res) => {
   try {
-    if (!req.files?.length) return failure(res, 422, "لم يتم إرسال ملف");
+    if (!req.files?.length) return failure(res, 422, "يرجى اختيار ملف أولاً ثم الضغط على رفع");
     const out = [];
     for (const f of req.files) {
       const err = validateFile(f, { imagesOnly: false });
@@ -383,7 +383,8 @@ cms.post("/media/upload", uploader.array("files", 12), (req, res) => {
     });
     res.json({ ok: true, media: out });
   } catch (e) {
-    failure(res, 500, e.message);
+    console.error("[cms:media-upload]", e);
+    failure(res, 500, "تعذر رفع الملفات، يرجى المحاولة مجدداً");
   }
 });
 

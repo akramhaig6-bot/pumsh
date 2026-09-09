@@ -48,14 +48,14 @@ export function requireAuth(req, res, next) {
   if (!user) return failure(res, 401, "انتهت جلستك، يرجى تسجيل الدخول مرة أخرى");
   if (!user.active) {
     revokeSession(req.sessionRaw);
-    return failure(res, 403, "حسابك تم تعطيله، يرجى التواصل مع الإدارة");
+    return failure(res, 403, "تم إيقاف حسابك، يرجى التواصل معنا عبر صفحة «تواصل معنا»");
   }
   req.user = user;
   next();
 }
 
 export function requireAdmin(req, res, next) {
-  if (!req.user) return failure(res, 401, "انتهت جلستك");
+  if (!req.user) return failure(res, 401, "انتهت جلستك، يرجى تسجيل الدخول مرة أخرى");
   if (req.user.role !== "admin")
     return failure(res, 404, "الصفحة غير موجودة"); // عدم كشف لوحة الإدارة
   if (req.user.must_change && req.path !== "/api/admin/me/password")
@@ -69,7 +69,7 @@ export function csrfProtect(req, res, next) {
   const cookie = req.cookies?.nama_csrf || "";
   const header = req.headers["x-csrf-token"] || "";
   if (!cookie || cookie !== header) {
-    return failure(res, 403, "طلب غير صالح");
+    return failure(res, 403, "انتهت صلاحية هذه الصفحة، يرجى تحديث الصفحة والمحاولة مجدداً");
   }
   next();
 }

@@ -123,3 +123,22 @@ export const adminOf = (u) => (u.role === "admin" ? u : null);
 export const escapeLike = (v) => String(v || "").replace(/[\\%_]/g, (m) => "\\" + m);
 export const like = `%${""}%`;
 export const byName = (u) => u?.name || "النظام";
+
+/* ---------------- صياغة الأعداد بالعربية ----------------
+   arCount(5, { one: "دقيقة واحدة", two: "دقيقتان", few: "دقائق", many: "دقيقة" })
+   → "5 دقائق" — تُستخدم في كل الرسائل التي تذكر عدداً لتفادي أخطاء مثل "5 دقيقة". */
+export function arCount(n, { one, two, few, many } = {}) {
+  const num = Number(n) || 0;
+  if (num === 1) return one;
+  if (num === 2) return two;
+  if (num >= 3 && num <= 10) return `${num} ${few}`;
+  return `${num} ${many}`;
+}
+
+/** مدة الحظر/الانتظار بصياغة عربية سليمة: "دقيقة واحدة"، "دقيقتان"، "5 دقائق"، "15 دقيقة" */
+export const arMinutes = (n) =>
+  arCount(n, { one: "دقيقة واحدة", two: "دقيقتان", few: "دقائق", many: "دقيقة" });
+
+/** رقم عرض إنساني للطلب/التذكرة بدل المعرف التقني: "طلب رقم 1042" */
+export const requestNo = (seq) => `طلب رقم ${seq ?? "—"}`;
+export const ticketNo = (seq) => `تذكرة رقم ${seq ?? "—"}`;

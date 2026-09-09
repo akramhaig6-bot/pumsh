@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { api, qs, fmtDate, REQUEST_STATUSES, TICKET_STATUSES } from "../lib/api.jsx";
+import { api, qs, fmtDate, REQUEST_STATUSES, TICKET_STATUSES, unreadText, requestNo, ticketNo, useMaxFileMB } from "../lib/api.jsx";
 import { Spinner, Empty, Badge, Pager, Tabs, Field, FileChips, Modal, Confirm } from "../components/ui.jsx";
 import { useApp } from "../store.jsx";
 
@@ -16,8 +16,8 @@ export function Overview() {
   return (
     <div className="grid cols2">
       <div className="card">
-        <h3>مرحباً، {user?.name} 👋</h3>
-        <p className="muted small">تابع طلباتك وتذاكر الدعم من هنا. لديك <b>{unread}</b> إشعار غير مقروء.</p>
+        <h3>مرحباً، {user?.name}</h3>
+        <p className="muted small">تابع طلباتك وتذاكر الدعم من هنا — {unreadText(unread)}.</p>
         <div className="flex">
           <Link className="btn" to="/offers">تصفح العروض</Link>
           <Link className="btn secondary" to="/account/tickets">فتح تذكرة دعم</Link>
@@ -29,11 +29,11 @@ export function Overview() {
           <Link key={r.id} to={`/account/requests/${r.id}`} className="list-row">
             <div>
               <div className="t">{r.offer_title}</div>
-              <div className="s mono">#{r.id}</div>
+              <div className="s">{requestNo(r)}</div>
             </div>
             <Badge map={REQUEST_STATUSES} value={r.status} />
           </Link>
-        )) : <Empty icon="📋" title="لا طلبات بعد" sub="ابدأ بتصفح العروض" />}
+        )) : <Empty icon="📋" title="لا طلبات بعد" sub="تصفح العروض وقدّم طلبك الأول" />}
       </div>
       <div className="card">
         <h3>تذاكر الدعم</h3>
@@ -45,7 +45,7 @@ export function Overview() {
             </div>
             <Badge map={TICKET_STATUSES} value={t.status} />
           </Link>
-        )) : <Empty icon="🎧" title="لا تذاكر" />}
+        )) : <Empty icon="🎧" title="لا توجد تذاكر بعد" />}
       </div>
     </div>
   );
@@ -61,13 +61,13 @@ export function Profile() {
   const save = async (e) => {
     e.preventDefault(); setBusy(true);
     try { const d = await api("/api/auth/profile", { method: "PUT", body: f }); setAuth({ ...user, ...d.user }); toast("تم حفظ بياناتك"); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { toast(e2.message, "err"); }
     setBusy(false);
   };
   const change = async (e) => {
     e.preventDefault(); setBusy(true);
     try { await api("/api/auth/change-password", { method: "POST", body: pw }); toast("تم تغيير كلمة المرور"); setPw({ current: "", password: "", confirm: "" }); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { toast(e2.message, "err"); }
     setBusy(false);
   };
   return (
@@ -110,7 +110,7 @@ export function Requests() {
             <Link key={r.id} to={`/account/requests/${r.id}`} className="list-row">
               <div>
                 <div className="t">{r.offer_title}</div>
-                <div className="s mono">#{r.id} · {fmtDate(r.created_at)}</div>
+                <div className="s">{requestNo(r)} · {fmtDate(r.created_at)}</div>
               </div>
               <Badge map={REQUEST_STATUSES} value={r.status} />
             </Link>
@@ -134,8 +134,9 @@ export function RequestDetail() {
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [confirmCancel, setConfirmCancel] = useState(false);
-
-  const load = () => api(`/api/client/requests/${id}`).then(setD).catch((e) => alert(e.message));
+  const [loadErr, setLoadErr] = useState("");
+  const maxMB = useMaxFileMB();
+  const load = () => api(`/api/client/requests/${id}`).then((r) => { setD(r); setLoadErr(""); }).catch((e) => setLoadErr(e.message));
   useEffect(() => { load(); }, [id]);
 
   const sendInfo = async (e) => {
@@ -144,7 +145,7 @@ export function RequestDetail() {
     fd.append("reply", info.reply);
     for (const f of files) fd.append("files", f);
     setBusy(true);
-    try { await api(`/api/client/requests/${id}/info`, { method: "POST", form: fd }); toast("أرسلت المعلومات المطلوبة"); setInfo({ reply: "" }); setFiles([]); load(); }
+    try { await api(`/api/client/requests/${id}/info`, { method: "POST", form: fd }); toast("تم إرسال المعلومات بنجاح، سنراجع طلبك ونوافيك بالتحديثات"); setInfo({ reply: "" }); setFiles([]); load(); }
     catch (e2) { toast(e2.message, "err"); }
     setBusy(false);
   };
@@ -156,15 +157,16 @@ export function RequestDetail() {
     setBusy(false); setConfirmCancel(false);
   };
 
+  if (loadErr) return <div className="card"><Empty icon="⚠️" title="تعذر تحميل الطلب" sub={loadErr} /><div className="center" style={{ paddingBottom: "1rem" }}><button className="btn" onClick={load}>إعادة المحاولة</button></div></div>;
   if (!d) return <Spinner />;
   const r = d.request;
-  const canCancel = ["new", "review", "info_waiting", "info_complete"].includes(r.status);
+  const canCancel = ["new", "info_waiting"].includes(r.status);
   return (
     <div className="card pad0">
       <div className="card-head">
         <div>
           <h3 style={{ marginBottom: ".2em" }}>{r.offer_title}</h3>
-          <span className="small muted mono">#{r.id}</span>
+          <span className="small muted">{requestNo(r)}</span>
         </div>
         <div className="flex">
           <Badge map={REQUEST_STATUSES} value={r.status} />
@@ -176,7 +178,7 @@ export function RequestDetail() {
         {r.files?.length > 0 && <FileChips files={r.files} />}
 
         {r.info_note && r.status === "info_waiting" && (
-          <div className="alert warn"><b>الإدارة تطلب معلومات إضافية:</b><br />{r.info_note}</div>
+          <div className="alert warn"><b>فريق المنصة يطلب معلومات إضافية:</b><br />{r.info_note}</div>
         )}
         {r.status === "info_waiting" && (
           <form className="card" onSubmit={sendInfo} style={{ marginTop: "1rem" }}>
@@ -189,6 +191,7 @@ export function RequestDetail() {
               <label className="drop">{files.length ? `📎 ${files.length} ملفات` : "اختيار ملفات"}
                 <input type="file" hidden multiple accept=".pdf,.doc,.docx,image/*" onChange={(e) => setFiles([...e.target.files])} />
               </label>
+              <div className="hint">حتى 8 ملفات — {maxMB} ميغابايت للملف كحد أقصى — JPG, PNG, PDF, DOC</div>
             </div>
             <button className="btn block" disabled={busy}>إرسال المعلومات</button>
           </form>
@@ -231,6 +234,7 @@ export function Tickets() {
   const [reqs, setReqs] = useState([]);
   const [busy, setBusy] = useState(false);
   const { toast } = useApp();
+  const maxMB = useMaxFileMB();
 
   const openNew = async () => {
     setOpened(true);
@@ -245,7 +249,7 @@ export function Tickets() {
     fd.append("subject", f.subject); fd.append("message", f.message); fd.append("request_id", f.request_id || "");
     for (const x of files) fd.append("files", x);
     setBusy(true);
-    try { const r = await api("/api/client/tickets", { method: "POST", form: fd }); toast("أُنشئت التذكرة"); setOpened(false); setF({ subject: "", message: "", request_id: "" }); setPage(1); setTab("all"); }
+    try { const r = await api("/api/client/tickets", { method: "POST", form: fd }); toast("تم إرسال تذكرتك بنجاح، سيرد عليك فريق الدعم قريباً"); setOpened(false); setF({ subject: "", message: "", request_id: "" }); setPage(1); setTab("all"); }
     catch (e2) { toast(e2.message, "err"); }
     setBusy(false);
   };
@@ -264,7 +268,7 @@ export function Tickets() {
             </div>
             <Badge map={TICKET_STATUSES} value={t.status} />
           </Link>
-        )) : <Empty icon="🎧" title="لا توجد تذاكر" />}
+        )) : <Empty icon="🎧" title="لا توجد تذاكر بعد" sub="إن واجهتك أي مشكلة افتح تذكرة وسنساعدك" />}
         <div style={{ padding: "0 1rem 1rem" }}><Pager page={d?.pagination?.page} pages={d?.pagination?.pages} onChange={setPage} /></div>
       </div>
       {opened && (
@@ -275,7 +279,7 @@ export function Tickets() {
             <Field label="الطلب المرتبط (اختياري)">
               <select value={f.request_id} onChange={(e) => setF({ ...f, request_id: e.target.value })}>
                 <option value="">— بدون ربط —</option>
-                {reqs.map((r) => <option key={r.id} value={r.id}>#{r.id} — {r.offer_title}</option>)}
+                {reqs.map((r) => <option key={r.id} value={r.id}>{requestNo(r)} — {r.offer_title}</option>)}
               </select>
             </Field>
             <Field label="وصف المشكلة" req><textarea required minLength={20} value={f.message} onChange={(e) => setF({ ...f, message: e.target.value })} /></Field>
@@ -283,6 +287,7 @@ export function Tickets() {
               <label className="drop">{files.length ? `📎 ${files.length} ملفات` : "اختيار ملفات"}
                 <input type="file" hidden multiple accept=".pdf,.doc,.docx,image/*" onChange={(e) => setFiles([...e.target.files])} />
               </label>
+              <div className="hint">حتى 6 ملفات — {maxMB} ميغابايت للملف كحد أقصى — JPG, PNG, PDF, DOC</div>
             </div>
           </form>
         </Modal>
@@ -300,7 +305,9 @@ export function TicketDetail() {
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
-  const load = () => api(`/api/client/tickets/${id}`).then(setD).catch((e) => alert(e.message));
+  const [loadErr, setLoadErr] = useState("");
+  const maxMB = useMaxFileMB();
+  const load = () => api(`/api/client/tickets/${id}`).then((t) => { setD(t); setLoadErr(""); }).catch((e) => setLoadErr(e.message));
   useEffect(() => { load(); }, [id]);
 
   const reply = async (e) => {
@@ -308,17 +315,18 @@ export function TicketDetail() {
     const fd = new FormData(); fd.append("text", text);
     for (const f of files) fd.append("files", f);
     setBusy(true);
-    try { await api(`/api/client/tickets/${id}/reply`, { method: "POST", form: fd }); setText(""); setFiles([]); load(); toast("تم إرسال ردك"); }
+    try { await api(`/api/client/tickets/${id}/reply`, { method: "POST", form: fd }); setText(""); setFiles([]); load(); toast("تم إرسال ردك بنجاح"); }
     catch (e2) { toast(e2.message, "err"); }
     setBusy(false);
   };
   const close = async () => {
     setBusy(true);
-    try { await api(`/api/client/tickets/${id}/close`, { method: "POST" }); load(); toast("أُغلقت التذكرة"); }
+    try { await api(`/api/client/tickets/${id}/close`, { method: "POST" }); load(); toast("تم إغلاق التذكرة بنجاح"); }
     catch (e2) { toast(e2.message, "err"); }
     setBusy(false); setConfirmClose(false);
   };
 
+  if (loadErr) return <div className="card"><Empty icon="⚠️" title="تعذر تحميل التذكرة" sub={loadErr} /><div className="center" style={{ paddingBottom: "1rem" }}><button className="btn" onClick={load}>إعادة المحاولة</button></div></div>;
   if (!d) return <Spinner />;
   const t = d.ticket;
   return (
@@ -326,7 +334,7 @@ export function TicketDetail() {
       <div className="card-head">
         <div>
           <h3 style={{ margin: 0 }}>{t.subject}</h3>
-          <span className="small muted mono">#{t.id}</span>
+          <span className="small muted">{ticketNo(t)}</span>
         </div>
         <div className="flex">
           <Badge map={TICKET_STATUSES} value={t.status} />
@@ -334,7 +342,7 @@ export function TicketDetail() {
         </div>
       </div>
       <div className="card-body">
-        <div className="alert info small">التذكرة مرتبطة {t.request ? <>بالطلب <b className="mono">#{t.request.id}</b></> : "بلا طلب مرتبط"}</div>
+        <div className="alert info small">التذكرة مرتبطة {t.request ? <>بالطلب <b>طلب رقم {t.request.seq ?? "—"}</b></> : "بلا طلب مرتبط"}</div>
         {t.message && <p><b>الرسالة:</b> {t.message}</p>}
         {t.files?.length > 0 && <FileChips files={t.files} />}
         <h4>المحادثة</h4>
@@ -342,24 +350,25 @@ export function TicketDetail() {
           <div className="timeline">
             {t.replies.map((r) => (
               <div className="t" key={r.id}>
-                <b>{r.by_type === "admin" ? "الإدارة" : "أنت"}</b> <span className="small muted">· {fmtDate(r.created_at)}</span>
+                <b>{r.by_type === "admin" ? "فريق الدعم" : "أنت"}</b> <span className="small muted">· {fmtDate(r.created_at)}</span>
                 <p style={{ margin: ".2em 0" }}>{r.text}</p>
                 <FileChips files={r.files} />
               </div>
             ))}
           </div>
-        ) : <p className="muted small">لا ردود بعد.</p>}
+        ) : <p className="muted small">لا ردود بعد — سيصلك إشعار فور رد فريق الدعم.</p>}
         <form className="card" onSubmit={reply} style={{ marginTop: "1rem" }}>
           <Field label="ردك" req><textarea required value={text} onChange={(e) => setText(e.target.value)} /></Field>
           <div className="field"><label>مرفقات</label>
             <label className="drop">{files.length ? `📎 ${files.length} ملفات` : "اختيار ملفات"}
               <input type="file" hidden multiple accept=".pdf,.doc,.docx,image/*" onChange={(e) => setFiles([...e.target.files])} />
             </label>
+            <div className="hint">حتى 6 ملفات — {maxMB} ميغابايت للملف كحد أقصى — JPG, PNG, PDF, DOC</div>
           </div>
           <button className="btn block" disabled={busy}>إرسال الرد</button>
         </form>
       </div>
-      {confirmClose && <Confirm danger title="إغلاق التذكرة" msg="يمكنك إعادة فتحها لاحقاً بإضافة رد جديد." onOk={close} onClose={() => setConfirmClose(false)} busy={busy} />}
+      {confirmClose && <Confirm danger title="إغلاق التذكرة" msg="هل تريد إغلاق هذه التذكرة؟ يمكنك إعادة فتحها لاحقاً بإضافة رد جديد." onOk={close} onClose={() => setConfirmClose(false)} busy={busy} />}
     </div>
   );
 }
@@ -368,7 +377,7 @@ export function TicketDetail() {
 export function Notifications() {
   const [d, setD] = useState(null);
   const [page, setPage] = useState(1);
-  const { refreshMe } = useApp();
+  const { refreshMe, toast } = useApp();
   const load = async (p = page, read = "") => {
     setD(null);
     const r = await api(`/api/me/notifications${qs({ page: p, per: 15, read })}`);
@@ -379,8 +388,10 @@ export function Notifications() {
     try { await api(`/api/me/notifications/${id}/read`, { method: "POST" }); refreshMe(); load(page); } catch { }
   };
   const all = async () => {
-    await api("/api/me/notifications/read-all", { method: "POST" });
-    refreshMe(); load(page);
+    try {
+      await api("/api/me/notifications/read-all", { method: "POST" });
+      refreshMe(); load(page);
+    } catch (e2) { toast(e2.message, "err"); }
   };
   return (
     <div className="card pad0">
@@ -398,7 +409,7 @@ export function Notifications() {
             </div>
           ))}
         </div>
-      ) : <Empty icon="🔔" title="لا إشعارات" />}
+      ) : <Empty icon="🔔" title="لا إشعارات" sub="ستصلك هنا تحديثات طلباتك وتذاكرك" />}
       <div style={{ padding: "0 1rem 1rem" }}><Pager page={d?.pagination?.page} pages={d?.pagination?.pages} onChange={setPage} /></div>
     </div>
   );

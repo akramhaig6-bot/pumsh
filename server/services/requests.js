@@ -51,11 +51,11 @@ function actorRow(byType, byId, byName) {
  */
 export function transition(requestId, to, actor, opts = {}) {
   const r = one("SELECT * FROM requests WHERE id=?", requestId);
-  if (!r) throw httpError(404, "العنصر لم يعد موجوداً");
+  if (!r) throw httpError(404, "الطلب لم يعد موجوداً");
   const allowed = TRANSITIONS[r.status]?.[to];
-  if (!allowed) throw httpError(409, "لا يمكن تنفيذ هذا الإجراء في الحالة الحالية للطلب");
+  if (!allowed) throw httpError(409, "لا يمكن تنفيذ هذا الإجراء على الطلب في وضعه الحالي، يرجى تحديث الصفحة لعرض الوضع الحالي");
   if (allowed !== "both" && allowed !== actor.byType)
-    throw httpError(403, "لا تملك صلاحية تنفيذ هذا الإجراء");
+    throw httpError(403, "عذراً، هذا الإجراء غير متاح لحسابك");
 
   const updatedAt = now();
   run(
@@ -90,9 +90,9 @@ export function transition(requestId, to, actor, opts = {}) {
 /** استكمال معلومات العميل: بانتظار معلومات → مكتمل المعلومات */
 export function completeInfo(requestId, actor, reply, files = []) {
   const r = one("SELECT * FROM requests WHERE id=?", requestId);
-  if (!r) throw httpError(404, "العنصر لم يعد موجوداً");
+  if (!r) throw httpError(404, "الطلب لم يعد موجوداً");
   if (r.status !== "info_waiting")
-    throw httpError(409, "لم تعد حالة الطلب تسمح بهذا الإجراء");
+    throw httpError(409, "انتهت مرحلة استكمال المعلومات لهذا الطلب، يرجى فتح تذكرة دعم للمتابعة");
   tx(() => {
     run(
       `INSERT INTO request_info (id,request_id,reply,files,created_at) VALUES (?,?,?,?,?)`,

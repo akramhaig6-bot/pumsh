@@ -14,10 +14,10 @@ import { Settings as AdminSettings, Notifications as AdminNotifications, Events 
 
 /* حاجز أخطاء: أي خطأ أثناء العرض يظهر بطاقة خطأ بدل صفحة بيضاء فارغة */
 class CrashBoundary extends Component {
-  state = { err: null };
+  state = { err: null, ref: "" };
 
   static getDerivedStateFromError(err) {
-    return { err };
+    return { err, ref: `ERR-${Date.now().toString(36).toUpperCase()}` };
   }
 
   componentDidCatch(err, info) {
@@ -30,10 +30,15 @@ class CrashBoundary extends Component {
       <div className="wrap" style={{ minHeight: "60vh", display: "grid", placeItems: "center", padding: "3rem 1rem", textAlign: "center" }}>
         <div className="card" style={{ maxWidth: 540, padding: "1.75rem" }}>
           <h1 style={{ marginTop: 0 }}>تعذّر عرض هذه الصفحة</h1>
-          <p className="small muted">حدث خطأ غير متوقع في الواجهة. بياناتك محفوظة — جرّب إعادة المحاولة.</p>
-          <pre className="small muted" dir="ltr" style={{ whiteSpace: "pre-wrap", textAlign: "left", background: "var(--surface2)", padding: ".75rem", borderRadius: 10 }}>
-            {String(this.state.err?.message || this.state.err)}
-          </pre>
+          <p className="small muted">حدث خطأ غير متوقع. بياناتك محفوظة — جرّب إعادة المحاولة، وإن تكرر الخطأ تواصل معنا مع ذكر رمز المرجع أدناه.</p>
+          {!import.meta.env.DEV && this.state.ref && (
+            <p className="small muted">رمز المرجع: <span dir="ltr" className="mono">{this.state.ref}</span></p>
+          )}
+          {import.meta.env.DEV && (
+            <pre className="small muted" dir="ltr" style={{ whiteSpace: "pre-wrap", textAlign: "left", background: "var(--surface2)", padding: ".75rem", borderRadius: 10 }}>
+              {String(this.state.err?.message || this.state.err)}
+            </pre>
+          )}
           <div className="flex" style={{ justifyContent: "center" }}>
             <a className="btn secondary" href="/">الصفحة الرئيسية</a>
             <button className="btn" type="button" onClick={() => window.location.reload()}>إعادة المحاولة</button>
@@ -62,21 +67,19 @@ function BackendDownNotice() {
     <div className="wrap" style={{ maxWidth: 620, padding: "3rem 1rem 4rem" }}>
       <div className="card">
         <div className="center" style={{ marginBottom: "1.2rem" }}>
-          <h1 style={{ marginBottom: ".1em" }}>تعذّر الاتصال بخادم المنصة</h1>
+          <h1 style={{ marginBottom: ".1em" }}>تعذّر الاتصال بخدمة المنصة</h1>
           <p className="muted small" style={{ margin: 0 }}>
-            هذه الواجهة تعمل، لكن خادم البيانات (API) غير متاح — وبدونه لا يمكن فتح لوحة الإدارة.
+            لا يمكن الوصول إلى بيانات المنصة حالياً — قد تكون الخدمة متوقفة مؤقتاً أو هناك مشكلة في الاتصال.
           </p>
         </div>
         <div className="alert err">
-          كل طلبات <span dir="ltr">/api/*</span> تعيد رداً غير متوقع (غير JSON)، وأشهر سبب: نشر الواجهة
-          على <b>Vercel كملفات ثابتة فقط</b> بينما المشروع يتطلب خادم <b>Node</b> يشغّل{" "}
-          <span dir="ltr">server/index.js</span> (Express + SQLite + WebSocket)، أو أن الخادم متوقف
-          أو أن <span dir="ltr">VITE_API_URL</span> غير مضبوط على عنوان الخادم.
+          تعذر تحميل بيانات لوحة الإدارة. يرجى التحقق من النقاط التالية ثم إعادة المحاولة.
         </div>
         <ul className="small" style={{ textAlign: "right", paddingInlineStart: "1.2rem" }}>
-          <li>شغّل الخادم على استضافة تدعم Node (VPS أو ما يشابهها): <span dir="ltr">npm run build && npm start</span></li>
-          <li>تأكد أن <span dir="ltr">/api/health</span> على نطاقك يرد JSON: <span dir="ltr">{`{"ok":true}`}</span></li>
-          <li>إن كانت الواجهة على نطاق منفصل: اضبط <span dir="ltr">VITE_API_URL</span> على عنوان الخادم أثناء البناء.</li>
+          <li>تحقق من اتصالك بالإنترنت.</li>
+          <li>تأكد أن خادم المنصة يعمل وأنه يستقبل الطلبات.</li>
+          <li>إن كانت الواجهة منشورة على نطاق منفصل عن الخادم، تأكد من إعدادات الربط بينهما.</li>
+          <li>إن استمرت المشكلة، تواصل مع الدعم الفني المسؤول عن الاستضافة.</li>
         </ul>
         <button className="btn block" type="button" onClick={() => window.location.reload()}>إعادة المحاولة</button>
       </div>
