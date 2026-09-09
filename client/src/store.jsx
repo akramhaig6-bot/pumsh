@@ -14,6 +14,7 @@ export function AppProvider({ children }) {
   const [unread, setUnread] = useState(0);
   const [socketOn, setSocketOn] = useState(false);
   const [toasts, setToasts] = useState([]);
+  const [backendOk, setBackendOk] = useState(null); // null=جارٍ الفحص، false=لا خادم API
   const socketRef = useRef(null);
   const userRef = useRef(null);
   userRef.current = user;
@@ -29,15 +30,27 @@ export function AppProvider({ children }) {
     return () => window.removeEventListener("auth:expired", onExpired);
   }, []);
 
-  /* عند الإقلاع: كوكي CSRF ثم حالة الجلسة */
+  /* عند الإقلاع: فحص وجود خادم API ثم كوكي CSRF ثم حالة الجلسة.
+     مهم في نشر Vercel الثابت: كل /api/* يرد HTML (rewrite) فيبدو الخطأ
+     «تعذر تنفيذ الطلب» — هنا نكتشف ذلك مبكراً ونخبر المستخدم بوضوح. */
   useEffect(() => {
     (async () => {
+      let ok = false;
       try {
-        await api("/api/auth/csrf");
-        const d = await api("/api/auth/me");
-        setUser(d.user);
-        setUnread(d.user?.unread || 0);
-      } catch { /* زائر */ }
+        const h = await fetch(`${API_BASE}/api/health`, { cache: "no-store" });
+        const ct = h.headers.get("content-type") || "";
+        const j = ct.includes("application/json") ? await h.json() : null;
+        ok = h.ok && !!j?.ok;
+      } catch { ok = false; }
+      setBackendOk(ok);
+      if (ok) {
+        try {
+          await api("/api/auth/csrf");
+          const d = await api("/api/auth/me");
+          setUser(d.user);
+          setUnread(d.user?.unread || 0);
+        } catch { /* زائر */ }
+      }
       setMeReady(true);
     })();
   }, []);
@@ -92,8 +105,8 @@ export function AppProvider({ children }) {
   }, []);
 
   const value = useMemo(
-    () => ({ user, meReady, unread, socketOn, toasts, toast, setAuth, refreshMe, logout }),
-    [user, meReady, unread, socketOn, toasts, toast, setAuth, refreshMe, logout],
+    () => ({ user, meReady, backendOk, unread, socketOn, toasts, toast, setAuth, refreshMe, logout }),
+    [user, meReady, backendOk, unread, socketOn, toasts, toast, setAuth, refreshMe, logout],
   );
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

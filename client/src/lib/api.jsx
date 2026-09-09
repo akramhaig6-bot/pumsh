@@ -62,7 +62,12 @@ export async function api(path, { method = "GET", body, form, signal } = {}) {
   try { data = await res.json(); } catch { /* فارغ */ }
   if (data && typeof data.csrf === "string" && data.csrf) csrfMem = data.csrf;
   if (!res.ok || !data?.ok) {
-    const err = new ApiError(data?.error || "تعذر تنفيذ الطلب", res.status, data);
+    const msg =
+      data?.error ||
+      (!data
+        ? `تعذر تنفيذ الطلب — استجابة غير متوقعة من الخادم (HTTP ${res.status})`
+        : "تعذر تنفيذ الطلب");
+    const err = new ApiError(msg, res.status, data);
     if (res.status === 401) window.dispatchEvent(new CustomEvent("auth:expired"));
     throw err;
   }
