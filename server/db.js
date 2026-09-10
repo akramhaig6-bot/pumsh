@@ -1,5 +1,6 @@
 import { DatabaseSync } from "node:sqlite";
 import { DATABASE_PATH } from "./config.js";
+import logger from "./lib/logger.js";
 
 export const db = new DatabaseSync(DATABASE_PATH);
 db.exec("PRAGMA journal_mode = WAL;");
@@ -14,7 +15,7 @@ CREATE TABLE IF NOT EXISTS users (
   email TEXT NOT NULL UNIQUE COLLATE NOCASE,
   phone TEXT NOT NULL DEFAULT '',
   pass_hash TEXT NOT NULL,
-  salt TEXT NOT NULL,
+  salt TEXT NOT NULL DEFAULT '',
   role TEXT NOT NULL DEFAULT 'client',
   active INTEGER NOT NULL DEFAULT 1,
   must_change INTEGER NOT NULL DEFAULT 0,
@@ -22,6 +23,7 @@ CREATE TABLE IF NOT EXISTS users (
   created_by TEXT,
   last_login_at TEXT,
   failed INTEGER NOT NULL DEFAULT 0,
+  failed_at TEXT,
   locked_until TEXT,
   updated_at TEXT NOT NULL
 );
@@ -66,6 +68,7 @@ CREATE TABLE IF NOT EXISTS requests (
   reject_reason TEXT,
   cancel_reason TEXT,
   info_note TEXT,
+  assigned_to TEXT,
   version INTEGER NOT NULL DEFAULT 1,
   updated_at TEXT NOT NULL,
   created_at TEXT NOT NULL
@@ -96,6 +99,7 @@ CREATE TABLE IF NOT EXISTS tickets (
   message TEXT NOT NULL,
   files TEXT NOT NULL DEFAULT '[]',
   status TEXT NOT NULL DEFAULT 'open',
+  assigned_to TEXT,
   version INTEGER NOT NULL DEFAULT 1,
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL
@@ -245,7 +249,29 @@ CREATE TABLE IF NOT EXISTS settings_changes (
   admin_name TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
+
+/* ============================================================
+   [M14] جدول المرفقات المفهرس
+   يستبدل البحث بـ LIKE '%path%' + N+1 على أربع جداول
+   باستعلام واحد على فهرس فريد.
+     owner_type: request | request_info | ticket | ticket_reply | media
+     owner_id:   معرّف الكيان المالك
+     uploader_id: من رفع الملف فعلياً (يُستخدم لمنح المالك حق التنزيل)
+============================================================ */
+CREATE TABLE IF NOT EXISTS attachments (
+  id TEXT PRIMARY KEY,
+  path TEXT UNIQUE NOT NULL,
+  name TEXT NOT NULL DEFAULT '',
+  mime TEXT NOT NULL DEFAULT '',
+  size INTEGER NOT NULL DEFAULT 0,
+  owner_type TEXT NOT NULL,
+  owner_id TEXT NOT NULL,
+  uploader_id TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
+CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions(expires_at);
 CREATE INDEX IF NOT EXISTS idx_req_user ON requests(user_id);
 CREATE INDEX IF NOT EXISTS idx_req_offer ON requests(offer_id);
 CREATE INDEX IF NOT EXISTS idx_req_status ON requests(status);
@@ -262,23 +288,37 @@ CREATE INDEX IF NOT EXISTS idx_articles_status ON articles(status);
 CREATE INDEX IF NOT EXISTS idx_banners_status ON banners(status);
 CREATE INDEX IF NOT EXISTS idx_banner_clicks ON banner_clicks(banner_id);
 CREATE INDEX IF NOT EXISTS idx_reset_tokens_user ON reset_tokens(user_id);
+CREATE INDEX IF NOT EXISTS idx_reset_tokens_created ON reset_tokens(created_at);
 CREATE INDEX IF NOT EXISTS idx_requests_created ON requests(created_at);
 CREATE INDEX IF NOT EXISTS idx_tickets_updated ON tickets(updated_at);
 CREATE INDEX IF NOT EXISTS idx_media_path ON media(path);
+CREATE INDEX IF NOT EXISTS idx_attachments_path ON attachments(path);
+CREATE INDEX IF NOT EXISTS idx_attachments_owner ON attachments(owner_type, owner_id);
+CREATE INDEX IF NOT EXISTS idx_attachments_uploader ON attachments(uploader_id);
 `;
 
 db.exec(SCHEMA);
 
-/* ترحيلات خفيفة للأعمدة الجديدة على قواعد حالية */
+/* ============================================================
+   ترحيلات خفيفة للأعمدة الجديدة على قواعد قائمة
+============================================================ */
 function ensureColumn(table, col, ddl) {
   const cols = db.prepare(`PRAGMA table_info(${table})`).all();
-  if (!cols.some((c) => c.name === col)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+  if (!cols.some((c) => c.name === col)) {
+    db.exec(`ALTER TABLE ${table} ADD COLUMN ${ddl}`);
+    logger.info("migration: column added", { table, col });
+  }
 }
+
 ensureColumn("requests", "files", "files TEXT NOT NULL DEFAULT '[]'");
 ensureColumn("tickets", "files", "files TEXT NOT NULL DEFAULT '[]'");
-/* أرقام متسلسلة إنسانية للعرض على العملاء ("طلب رقم 1042") بدل المعرفات التقنية */
 ensureColumn("requests", "seq", "seq INTEGER");
 ensureColumn("tickets", "seq", "seq INTEGER");
+ensureColumn("users", "failed_at", "failed_at TEXT");
+ensureColumn("requests", "assigned_to", "assigned_to TEXT");
+ensureColumn("tickets", "assigned_to", "assigned_to TEXT");
+
+/* أرقام متسلسلة إنسانية للعرض ("طلب رقم 1042") بدل المعرفات التقنية */
 try {
   db.exec(`UPDATE requests SET seq = sub.rn FROM
     (SELECT id, COALESCE((SELECT MAX(seq) FROM requests), 1000) + ROW_NUMBER() OVER (ORDER BY created_at, id) AS rn
@@ -286,7 +326,9 @@ try {
   db.exec(`UPDATE tickets SET seq = sub.rn FROM
     (SELECT id, COALESCE((SELECT MAX(seq) FROM tickets), 1000) + ROW_NUMBER() OVER (ORDER BY created_at, id) AS rn
      FROM tickets WHERE seq IS NULL) sub WHERE tickets.id = sub.id`);
-} catch { /* قاعدة جديدة أو لا صفوف قديمة — لا شيء للترقيم */ }
+} catch (e) {
+  logger.debug("seq backfill skipped", { message: e.message });
+}
 
 /** تنفيذ عدة أوامر داخل معاملة */
 export function tx(fn) {
@@ -296,7 +338,11 @@ export function tx(fn) {
     db.exec("COMMIT");
     return out;
   } catch (e) {
-    db.exec("ROLLBACK");
+    try {
+      db.exec("ROLLBACK");
+    } catch {
+      /* لا معاملة جارية */
+    }
     throw e;
   }
 }
@@ -305,3 +351,13 @@ export const now = () => new Date().toISOString();
 export const one = (sql, ...args) => db.prepare(sql).get(...args);
 export const all = (sql, ...args) => db.prepare(sql).all(...args);
 export const run = (sql, ...args) => db.prepare(sql).run(...args);
+
+/** إغلاق نظيف — يُستدعى من graceful shutdown */
+export function closeDb() {
+  try {
+    db.close();
+    logger.info("database closed");
+  } catch (e) {
+    logger.warn("db close failed", { message: e.message });
+  }
+}

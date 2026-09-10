@@ -1,7 +1,12 @@
 import { one, all, run, now } from "../db.js";
 import { uid, jsonParse, jsonStr } from "../lib/util.js";
 import { logEvent } from "./events.js";
+import { emitToAll, EV } from "./realtime.js";
 
+/**
+ * إعدادات المنصة — تُخزن كصف JSON واحد في جدول settings.
+ * publicMeta() قائمة سماح مقصودة: لا يصل أي إعداد داخلي إلى الزوار.
+ */
 export const DEFAULT_SETTINGS = {
   name: "نَما",
   tagline: "اكتشف العروض وقدّم طلبك وتابعه أولاً بأول — كل خدماتنا في مكان واحد",
@@ -33,6 +38,7 @@ export const DEFAULT_SETTINGS = {
   notifyNewUser: false,
   allowRegistration: true,
   allowCatalogView: true,
+  seeded: false,
 };
 
 export function getSettings() {
@@ -44,39 +50,8 @@ export function getAllSettings() {
   return getSettings();
 }
 
-export function ensureSeeds() {
-  const row = one("SELECT value FROM settings WHERE key='app'");
-  if (!row) {
-    run("INSERT INTO settings (key,value,updated_at) VALUES ('app',?,?)", jsonStr(getSettings()), now());
-  }
-  const texts = [
-    ["home.offers_title", "الصفحة الرئيسية", "عنوان قسم العروض", "العروض المتاحة"],
-    ["home.articles_title", "الصفحة الرئيسية", "عنوان قسم المقالات", "قراءات وأفكار"],
-    ["empty.results", "رسائل النظام", "رسالة عدم وجود نتائج", "لا توجد نتائج مطابقة"],
-    ["auth.welcome", "الحساب", "رسالة الترحيب", "مرحباً بك في منصتنا"],
-    ["notification.request.accepted.title", "قوالب الإشعارات", "عنوان قبول الطلب", "تم قبول طلبك"],
-    ["notification.request.accepted.body", "قوالب الإشعارات", "محتوى قبول الطلب", "تم قبول طلبك رقم {request_id} على العرض {offer_title}"],
-    ["notification.request.rejected.title", "قوالب الإشعارات", "عنوان رفض الطلب", "تم رفض طلبك"],
-    ["notification.request.rejected.body", "قوالب الإشعارات", "محتوى رفض الطلب", "تم رفض طلبك رقم {request_id}. السبب: {reason}"],
-  ];
-  for (const [key, grp, description, value] of texts) {
-    const exists = one("SELECT key FROM texts WHERE key=?", key);
-    if (!exists) {
-      run(
-        "INSERT INTO texts (key,grp,description,value,default_value,updated_at) VALUES (?,?,?,?,?,?)",
-        key, grp, description, value, value, now(),
-      );
-    } else {
-      const def = one("SELECT default_value,value FROM texts WHERE key=?", key);
-      if (!def || !def.default_value) {
-        run("UPDATE texts SET default_value=? WHERE key=?", value, key);
-      }
-    }
-  }
-}
-
-/** حفظ الإعدادات مع سجل التغييرات (قبل/بعد) */
-export function saveSettings(next, admin) {
+/** حفظ الإعدادات مع سجل التغييرات (قبل/بعد) + بث لحظي */
+export function saveSettings(next, admin, ip = "") {
   const before = getSettings();
   const keys = new Set([...Object.keys(before), ...Object.keys(next)]);
   const changes = [];
@@ -85,40 +60,41 @@ export function saveSettings(next, admin) {
     const b = JSON.stringify(next[k]);
     if (a !== b) changes.push({ key: k, before: before[k], after: next[k] });
   }
-  run("UPDATE settings SET value=?, updated_at=? WHERE key='app'", jsonStr(next), now());
+
+  /* INSERT OR REPLACE: ينجح حتى لو لم يكن الصف موجوداً بعد */
+  run(
+    "INSERT INTO settings (key,value,updated_at) VALUES ('app',?,?) " +
+      "ON CONFLICT(key) DO UPDATE SET value=excluded.value, updated_at=excluded.updated_at",
+    jsonStr(next),
+    now(),
+  );
   run(
     "INSERT INTO settings_changes (id,changes,admin_id,admin_name,created_at) VALUES (?,?,?,?,?)",
     uid("SCH"),
     jsonStr(changes),
-    admin.id,
-    admin.name,
+    admin?.id || null,
+    admin?.name || "النظام",
     now(),
   );
+
   if (changes.length) {
     logEvent({
       type: "settings.change",
       actorType: "admin",
-      actorId: admin.id,
-      actorName: admin.name,
+      actorId: admin?.id || null,
+      actorName: admin?.name || "النظام",
       entityType: "settings",
       entityLabel: "إعدادات المنصة",
-      details: { changes },
+      details: { keys: changes.map((c) => c.key) },
+      ip,
     });
+    /* [RT-1] الواجهة تحدّث الإعدادات المرئية فوراً — بلا reload */
+    emitToAll(EV.SETTINGS_UPDATED, { changed: changes.map((c) => c.key), meta: publicMeta() });
   }
   return { before, changes, settings: next };
 }
 
-export function settingsChanges(page = 1, per = 25) {
-  const rows = all(
-    "SELECT id,changes,admin_name,created_at FROM settings_changes ORDER BY created_at DESC LIMIT ? OFFSET ?",
-    per,
-    (page - 1) * per,
-  );
-  const total = one("SELECT COUNT(*) c FROM settings_changes").c;
-  return { rows, total };
-}
-
-/** البيانات العامة التي تظهر للزوار (لا تسرّب إعدادات داخلية) */
+/** البيانات العامة التي تظهر للزوار — قائمة سماح، لا إعدادات داخلية */
 export function publicMeta() {
   const s = getSettings();
   return {
@@ -132,16 +108,25 @@ export function publicMeta() {
     address: s.address,
     socials: s.socials,
     copyright: s.copyright,
-    maintenance: s.maintenance,
+    maintenance: !!s.maintenance,
     maintenanceTitle: s.maintenanceTitle,
     maintenanceMessage: s.maintenanceMessage,
     returnDate: s.returnDate || "",
     homeSections: s.homeSections,
-    pageSize: s.pageSize,
+    pageSize: Number(s.pageSize ?? 12),
     maxFileMB: Number(s.maxFileMB ?? 5),
     featuredCount: Number(s.featuredCount ?? 6),
     articleCount: Number(s.articleCount ?? 3),
     allowRegistration: !!s.allowRegistration,
     allowCatalogView: !!s.allowCatalogView,
   };
+}
+
+/** [RT-1] يبث تحديث النصوص العامة لكل المتصلين */
+export function broadcastTexts(reason = "update") {
+  const rows = all("SELECT key, value FROM texts ORDER BY key");
+  emitToAll(EV.TEXTS_UPDATED, {
+    reason,
+    texts: Object.fromEntries(rows.map((r) => [r.key, r.value])),
+  });
 }

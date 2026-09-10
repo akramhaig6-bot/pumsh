@@ -1,0 +1,73 @@
+# ============================================================
+# وحدة systemd لمنصة نَما
+#
+# التثبيت:
+#   sudo cp deployment/mana.service /etc/systemd/system/mana.service
+#   # عدّل User و WorkingDirectory و ExecStart إن اختلفت المسارات
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now mana
+#
+# المتابعة:
+#   systemctl status mana
+#   journalctl -u mana -f
+# ============================================================
+
+[Unit]
+Description=Mana Platform (Node.js + Express + Socket.IO + SQLite)
+Documentation=https://github.com/akramhaig6-bot/pumsh
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# مستخدم غير مميز — لا تشغّل التطبيق بـ root
+User=mana
+Group=mana
+
+WorkingDirectory=/opt/mana
+
+# الأسرار تُقرأ من ملف واحد بصلاحيات 600 — لا تكتبها في هذه الوحدة
+#   sudo install -o mana -g mana -m 600 .env /opt/mana/.env
+EnvironmentFile=/opt/mana/.env
+
+# node >= 22.13 مطلوب (node:sqlite)
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning server/index.js
+
+# إعادة تشغيل تلقائية عند أي خروج غير مقصود
+Restart=always
+RestartSec=3
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+# إيقاف نظيف: التطبيق يلتقط SIGTERM ويغلق الخادم والقاعدة
+KillSignal=SIGTERM
+TimeoutStopSec=15
+
+# ---------- تقوية ----------
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+# المجلدات التي يحتاج التطبيق الكتابة فيها
+ReadWritePaths=/opt/mana/data
+# لا شبكة إلا ما يفتحه التطبيق بنفسه
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+
+# حدود موارد — تمنع عملية واحدة من إسقاط الخادم
+LimitNOFILE=65535
+MemoryMax=1G
+TasksMax=512
+
+# السجل: الأسطر JSON في production تصلح للتجميع مباشرة
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=mana
+
+[Install]
+WantedBy=multi-user.target

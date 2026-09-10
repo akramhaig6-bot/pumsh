@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api, qs, fmtDate, REQUEST_STATUSES, TICKET_STATUSES, unreadText, requestNo, ticketNo, useMaxFileMB } from "../lib/api.jsx";
 import { Spinner, Empty, Badge, Pager, Tabs, Field, FileChips, Modal, Confirm } from "../components/ui.jsx";
+import { showError } from "../lib/dialogs.jsx";
 import { useApp } from "../store.jsx";
 
 /* =================== نظرة عامة =================== */
@@ -385,7 +386,13 @@ export function Notifications() {
   };
   useEffect(() => { load(page, ""); }, [page]);
   const mark = async (id) => {
-    try { await api(`/api/me/notifications/${id}/read`, { method: "POST" }); refreshMe(); load(page); } catch { }
+    try {
+      await api(`/api/me/notifications/${id}/read`, { method: "POST" });
+      refreshMe();
+      load(page);
+    } catch (e) {
+      showError(e.message);
+    }
   };
   const all = async () => {
     try {

@@ -1,37 +1,20 @@
 import { run, one, all, now } from "../db.js";
 import { uid, unreadCount } from "../lib/util.js";
 import { logEvent } from "./events.js";
+import { emitToUser, EV } from "./realtime.js";
+import logger from "../lib/logger.js";
 
 /**
  * محرك الإشعارات — مستقل عن العملية الأساسية.
- * - منع تكرار نفس الحدث لنفس المستلم خلال دقيقة (dedupe_key).
- * - فشل الإنشاء يسجَّل كحدث فشل ولا يفشل العملية.
- * - الإشعارات الناجحة تُرسل فوراً عبر WebSocket إن كان المستلم متصلاً.
+ *  - منع تكرار نفس الحدث لنفس المستلم خلال دقيقة (dedupe_key).
+ *  - فشل الإنشاء يسجَّل كحدث فشل ولا يفشل العملية.
+ *  - [RT-1] كل إشعار ناجح يُبث فوراً عبر Socket.IO إلى غرفة المستخدم
+ *    بالحدث notification:new، فتتحدث الشارة بدون reload ولا polling.
  */
-let io = null;
-export function attachIO(socketServer) {
-  io = socketServer;
-}
 
-/** تمرير نسخة Socket.IO لخدمة الإشعارات من خارج الخدمة */
-export function setIO(socketServer) {
-  attachIO(socketServer);
-}
-
-/** إرسال إشعار فوري إلى مستخدم عبر الغرفة */
-export function emitLive(userId, payload = {}) {
-  try {
-    if (!io) return null;
-    io.to(`u:${userId}`).emit("notify", {
-      ...payload,
-      unread: unreadCount(userId),
-    });
-    return true;
-  } catch {
-    return null;
-  }
-}
-
+/**
+ * @returns {{id?:string, deduped?:boolean, failed?:boolean}}
+ */
 export function createNotification({
   userId,
   type = "system",
@@ -42,6 +25,7 @@ export function createNotification({
   dedupeKey = null,
   ip = "",
 }) {
+  if (!userId) return { failed: true };
   let noticeId = null;
   try {
     if (dedupeKey) {
@@ -60,17 +44,28 @@ export function createNotification({
       noticeId,
       userId,
       type,
-      title.slice(0, 160),
-      body.slice(0, 1000),
+      String(title || "").slice(0, 160),
+      String(body || "").slice(0, 1000),
       entityType,
       entityId,
       dedupeKey ? `${dedupeKey}` : null,
       now(),
     );
-    emitLive(userId, { id: noticeId, title, body, type });
+
+    /* [RT-1] بث فوري مع العدد المحدث لغير المقروء */
+    emitToUser(userId, EV.NOTIFICATION_NEW, {
+      id: noticeId,
+      type,
+      title: String(title || "").slice(0, 160),
+      body: String(body || "").slice(0, 1000),
+      entityType,
+      entityId,
+      unread: unreadCount(userId),
+    });
+
     return { id: noticeId };
   } catch (e) {
-    console.error("[notify] فشل إنشاء إشعار", e.message);
+    logger.error("notification create failed", { message: e.message, userId });
     logEvent({
       type: "notification.failed",
       actorType: "system",
@@ -81,6 +76,7 @@ export function createNotification({
   }
 }
 
+/** يرسل نفس الإشعار لكل الأدمن النشطين */
 export function notifyAdmins({ type, title, body, entityType, entityId, exclude = [], ip = "" }) {
   const admins = all("SELECT id FROM users WHERE role='admin' AND active=1");
   return admins
@@ -89,26 +85,26 @@ export function notifyAdmins({ type, title, body, entityType, entityId, exclude 
 }
 
 export function markRead(userId, noticeId) {
-  run("UPDATE notifications SET read=1 WHERE id=? AND user_id=?", noticeId, userId);
+  const r = run("UPDATE notifications SET read=1 WHERE id=? AND user_id=?", noticeId, userId);
+  if (!Number(r.changes)) return false;
+  /* نحدّث الشارة فوراً في كل أجهزته */
+  emitToUser(userId, EV.NOTIFICATION_NEW, { id: noticeId, read: true, unread: unreadCount(userId) });
   logEvent({
     type: "notification.read",
     actorType: "user",
     actorId: userId,
     entityType: "notification",
     entityId: noticeId,
-    details: { title: "قراءة إشعار" },
   });
+  return true;
 }
 
 export function markAllRead(userId) {
   const r = run("UPDATE notifications SET read=1 WHERE user_id=? AND read=0", userId);
-  logEvent({
-    type: "notification.read_all",
-    actorType: "user",
-    actorId: userId,
-    details: { count: Number(r.changes) },
-  });
-  return Number(r.changes);
+  const count = Number(r.changes || 0);
+  if (count) emitToUser(userId, EV.NOTIFICATION_NEW, { allRead: true, unread: 0 });
+  logEvent({ type: "notification.read_all", actorType: "user", actorId: userId, details: { count } });
+  return count;
 }
 
 export function retryNotification(noticeId, admin) {
@@ -116,7 +112,13 @@ export function retryNotification(noticeId, admin) {
   if (!n) return { error: "الإشعار غير موجود" };
   if (n.status === "sent") return { error: "الإشعار مُرسل بالفعل" };
   run("UPDATE notifications SET status='sent', read=0, retry_count=retry_count+1 WHERE id=?", noticeId);
-  emitLive(n.user_id, { id: n.id, title: n.title, body: n.body, type: n.type });
+  emitToUser(n.user_id, EV.NOTIFICATION_NEW, {
+    id: n.id,
+    type: n.type,
+    title: n.title,
+    body: n.body,
+    unread: unreadCount(n.user_id),
+  });
   logEvent({
     type: "notification.retry",
     actorType: "admin",
@@ -124,9 +126,7 @@ export function retryNotification(noticeId, admin) {
     actorName: admin.name,
     entityType: "notification",
     entityId: noticeId,
-    details: { target: n.user_id, title: n.title },
+    details: { target: n.user_id },
   });
   return { ok: true };
 }
-
-/* (emitLive معرفة أعلاه — إرسال فوري عبر WebSocket مع عداد غير المقروء) */
