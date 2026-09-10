@@ -1,10 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { api, qs, absUrl } from "../lib/api.jsx";
 import { Modal, Spinner } from "./ui.jsx";
+import { promptDialog, showError } from "../lib/dialogs.jsx";
 
 /**
  * محرر نص منسق خفيف مع شريط أدوات + إدراج صور من مكتبة الوسائط.
- * الصور تُرفع عبر /api/uploads (أو /api/uploads) ولا توجد أي خدمة خارجية.
+ * الصور تُرفع إلى مكتبة وسائط الإدارة على نفس الخادم — لا خدمات خارجية.
+ *
+ * [M19] استُبدل prompt/alert بنوافذ الحوار الموحدة.
  */
 export function RichText({ value, onChange, height = 260, placeholders = true }) {
   const ref = useRef(null);
@@ -26,9 +29,20 @@ export function RichText({ value, onChange, height = 260, placeholders = true })
     if (cur) onChange(cur.innerHTML);
   };
 
-  const insertLink = () => {
-    const url = prompt("رابط الرابط:");
-    if (url) cmd("createLink", url);
+  const insertLink = async () => {
+    const url = await promptDialog({
+      title: "إدراج رابط",
+      label: "الرابط",
+      placeholder: "https://…",
+      confirmText: "إدراج",
+    });
+    if (!url) return;
+    /* لا نسمح ببروتوكولات قابلة للتنفيذ مثل javascript: */
+    if (!/^(https?:|mailto:|tel:|\/)/i.test(url.trim())) {
+      showError("الرابط يجب أن يبدأ بـ http أو https أو /", { title: "رابط غير صالح" });
+      return;
+    }
+    cmd("createLink", url.trim());
   };
   const insertImage = (url) => {
     ref.current?.focus();
@@ -97,7 +111,7 @@ export function MediaPicker({ onClose, onPick, pick = false, multi = false }) {
       for (const f of files) form.append("files", f);
       const d = await api("/api/cms/media/upload", { method: "POST", form });
       setItems(null); await load(1, "");
-    } catch (e) { alert(e.message); }
+    } catch (e) { showError(e.message); }
     setUp(false);
   };
 

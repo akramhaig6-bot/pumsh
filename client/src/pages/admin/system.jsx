@@ -3,6 +3,7 @@ import { api, qs, fmtDate, absUrl } from "../../lib/api.jsx";
 import { Spinner, Empty, Badge, Pager, Modal, Confirm, Field } from "../../components/ui.jsx";
 import { PageHead } from "../../components/shell.jsx";
 import { useApp } from "../../store.jsx";
+import { showError, confirmDialog, promptDialog } from "../../lib/dialogs.jsx";
 
 /* =================== الإعدادات =================== */
 export function Settings() {
@@ -14,14 +15,14 @@ export function Settings() {
 
   const load = () => Promise.all([api("/api/cms/settings"), api("/api/cms/settings/changes")])
     .then(([s, c]) => { setD(s.settings); setF(s.settings); setChanges(c.changes); })
-    .catch((e) => alert(e.message));
+    .catch((e) => showError(e.message));
   const [changes, setChanges] = useState([]);
   useEffect(() => { load(); }, []);
 
   const save = async () => {
     setBusy(true);
     try { const r = await api("/api/cms/settings", { method: "PUT", body: f }); toast("حُفظت الإعدادات — طبّقت على الموقع مباشرة"); setF(r.settings); load(); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   if (!f) return <Spinner />;
@@ -140,11 +141,11 @@ export function Notifications() {
   const [d, setD] = useState(null);
   const [page, setPage] = useState(1);
   const [scope, setScope] = useState("all");
-  const load = (p = page) => { setD(null); api(`/api/admin/notifications${qs({ page: p, per: 20, scope })}`).then(setD).catch((e) => alert(e.message)); };
+  const load = (p = page) => { setD(null); api(`/api/admin/notifications${qs({ page: p, per: 20, scope })}`).then(setD).catch((e) => showError(e.message)); };
   useEffect(() => { load(page); }, [page, scope]);
   const retry = async (id) => {
     try { await api(`/api/admin/notifications/${id}/retry`, { method: "POST" }); toast("أُعيد إرسال الإشعار"); load(page); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
   };
   return (
     <>
@@ -187,7 +188,7 @@ export function Events() {
   const [q, setQ] = useState("");
   const [type, setType] = useState("");
   const [view, setView] = useState(null);
-  const load = (p = page) => { setD(null); api(`/api/admin/events${qs({ page: p, q, type })}`).then(setD).catch((e) => alert(e.message)); };
+  const load = (p = page) => { setD(null); api(`/api/admin/events${qs({ page: p, q, type })}`).then(setD).catch((e) => showError(e.message)); };
   useEffect(() => { load(page); }, [page, q, type]);
   return (
     <>
@@ -237,26 +238,37 @@ export function Admins() {
   const [resetFor, setResetFor] = useState(null);
   const [temp, setTemp] = useState({ temp: "", confirm: "" });
   const [busy, setBusy] = useState(false);
-  const load = () => api("/api/admin/admins").then(setD).catch((e) => alert(e.message));
+  const load = () => api("/api/admin/admins").then(setD).catch((e) => showError(e.message));
   useEffect(() => { load(); }, []);
   const create = async (e) => {
     e.preventDefault(); setBusy(true);
     try {
-      const r = await api("/api/admin/admins", { method: "POST", body: editing });
-      toast(`أُنشئ المشرف — كلمة المرور المؤقتة: ${r.temporary}`);
+      await api("/api/admin/admins", { method: "POST", body: editing });
+      /* [X4] الخادم لم يعد يعيد كلمة المرور في الاستجابة — أنت أدخلتها هنا،
+         فلا حاجة لنقلها عبر الشبكة مرة أخرى. */
+      toast(`أُنشئ المشرف ${editing.email} — سيُطلب منه تغيير كلمة المرور عند أول دخول`);
       setEditing(null); load();
-    } catch (e2) { alert(e2.message); }
+    } catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   const toggle = async (a) => {
-    if (!confirm(`ت${a.active ? "عطيل" : "فعيل"} حساب ${a.name}؟`)) return;
+    const yes = await confirmDialog({
+      title: a.active ? "تعطيل حساب المشرف" : "تفعيل حساب المشرف",
+      message: a.active
+        ? `سيُمنع ${a.name} من دخول لوحة الإدارة وتُلغى كل جلساته. متابعة؟`
+        : `سيتمكن ${a.name} من دخول لوحة الإدارة مرة أخرى. متابعة؟`,
+      confirmText: a.active ? "تعطيل" : "تفعيل",
+      cancelText: "تراجع",
+      danger: !!a.active,
+    });
+    if (!yes) return;
     try { await api(`/api/admin/admins/${a.id}/toggle`, { method: "POST", body: { active: !a.active } }); toast("تم"); load(); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
   };
   const reset = async () => {
     setBusy(true);
     try { await api(`/api/admin/admins/${resetFor.id}/reset`, { method: "POST", body: temp }); toast("أُعيد تعيين كلمة المرور"); setResetFor(null); setTemp({ temp: "", confirm: "" }); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   return (
@@ -320,13 +332,13 @@ export function Me() {
   const save = async (e) => {
     e.preventDefault(); setBusy(true);
     try { await api("/api/admin/me/profile", { method: "PUT", body: f }); setAuth({ ...user, ...f }); toast("حُفظ ملفك"); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   const change = async (e) => {
     e.preventDefault(); setBusy(true);
     try { await api("/api/auth/change-password", { method: "POST", body: pw }); toast("غيّرت كلمة مرورك — سجّل الدخول مجدداً"); setPw({ current: "", password: "", confirm: "" }); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   return (

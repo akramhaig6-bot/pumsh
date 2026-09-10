@@ -1,6 +1,7 @@
 import { Component } from "react";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { AppProvider, useApp, Toasts } from "./store.jsx";
+import { DialogHost } from "./lib/dialogs.jsx";
 import { PublicLayout, AccountLayout, AdminLayout } from "./components/shell.jsx";
 import {
   Home, Offers, OfferDetail, Articles, ArticleDetail, PageView,
@@ -138,6 +139,8 @@ export default function App() {
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
           <Toasts />
+          {/* [M19] نافذة الحوار الموحدة — تُركَّب مرة واحدة فوق كل التطبيق */}
+          <DialogHost />
         </BrowserRouter>
       </CrashBoundary>
     </AppProvider>

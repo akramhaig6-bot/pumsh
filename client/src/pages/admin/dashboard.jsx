@@ -4,10 +4,11 @@ import { api, fmtDate } from "../../lib/api.jsx";
 import { Spinner, Stat, Badge, Empty } from "../../components/ui.jsx";
 import { PageHead } from "../../components/shell.jsx";
 import { REQUEST_STATUSES, TICKET_STATUSES } from "../../lib/api.jsx";
+import { showError, confirmDialog, promptDialog } from "../../lib/dialogs.jsx";
 
 export function Dashboard() {
   const [d, setD] = useState(null);
-  useEffect(() => { api("/api/admin/stats").then(setD).catch((e) => alert(e.message)); }, []);
+  useEffect(() => { api("/api/admin/stats").then(setD).catch((e) => showError(e.message)); }, []);
   if (!d) return <Spinner />;
   const s = d.stats;
   return (

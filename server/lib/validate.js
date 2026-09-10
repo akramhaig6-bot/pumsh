@@ -162,9 +162,32 @@ export const requestSchema = z.object({
   notes: z.string().trim().max(5000, "الملاحظات طويلة جداً (الحد 5000 حرف)").default(""),
 });
 
+/** نفس requestSchema — اسم صريح يُستخدم من الواجهة العامة */
+export const requestCreateSchema = requestSchema;
+
 export const infoSchema = z.object({
   reply: z.string().trim().min(1, "يرجى كتابة ردك أولاً").max(5000, "الرد طويل جداً (الحد 5000 حرف)"),
 });
+
+/**
+ * استعلام العروض العامة — يُطبَّق في الخادم، لا في المتصفح.
+ * [M3] page/per يُحوَّلان هنا إلى LIMIT/OFFSET داخل SQL.
+ */
+const intQ = (min, max, dflt, msg) =>
+  z.coerce
+    .number({ invalid_type_error: msg })
+    .int(msg)
+    .min(min, msg)
+    .max(max, msg)
+    .default(dflt)
+    .catch(dflt);
+
+export const offerQuerySchema = z.object({
+  q: z.string().trim().max(120, "نص البحث طويل جداً").default(""),
+  category: z.string().trim().max(80, "التصنيف غير صالح").default(""),
+  page: intQ(1, 10000, 1, "رقم الصفحة غير صالح"),
+  per: intQ(1, 50, 12, "عدد العناصر في الصفحة غير صالح (1–50)"),
+}).transform((v) => ({ ...v, offset: (v.page - 1) * v.per }));
 
 export const adminSchema = z.object({
   name: nameS,
@@ -195,8 +218,11 @@ const CLEAN_OPTS = {
   },
   allowedStyles: { "*": { "text-align": [/^left$|^right$|^center$/], "font-weight": [/^bold$/] } },
   allowedSchemes: ["http", "https", "mailto", "tel"],
-  allowedSchemesByTag: { img: ["http", "https", "data"] },
+  /* [X8] لا data: للصور — الـ base64 يمرّ داخل الصفحة ويُنفّذ بلا فحص MIME */
+  allowedSchemesByTag: { img: ["http", "https"] },
   allowProtocolRelative: false,
+  /* [X8] يُجبر rel=noopener على الروابط التي تفتح في نافذة جديدة */
+  enforceHtmlBoundary: true,
   transformTags: {
     a: (tag, attribs) => ({
       tagName: "a",
@@ -209,18 +235,40 @@ export function cleanHtml(html = "") {
   return sanitizeHtml(String(html), CLEAN_OPTS).trim();
 }
 
-/* ---------------- كابتشا (تحدي رياضي بسيط) ---------------- */
+/* ---------------- كابتشا (تحدي رياضي بسيط) ----------------
+   [M18] كانت Map بلا تنظيف إطلاقاً — أي شخص يملؤها بطلبات /captcha
+   فيستهلك الذاكرة حتى يتعطّل الخادم. الآن: حدّ أعلى + تنظيف دوري. */
 const captchas = new Map();
+const CAPTCHA_MAX = 2000;
+const CAPTCHA_TTL = 5 * 60_000;
+
+function pruneCaptchas() {
+  const at = Date.now();
+  for (const [id, c] of captchas) if (c.expires < at) captchas.delete(id);
+  /* إن بقيت ممتلئة (هجوم حقيقي) نحذف الأقدم حتى نصف السعة */
+  if (captchas.size > CAPTCHA_MAX) {
+    const drop = captchas.size - Math.floor(CAPTCHA_MAX / 2);
+    let i = 0;
+    for (const id of captchas.keys()) {
+      if (i++ >= drop) break;
+      captchas.delete(id);
+    }
+  }
+}
+
 export function createCaptcha() {
+  pruneCaptchas();
   const a = crypto.randomInt(1, 9);
   const b = crypto.randomInt(1, 9);
   const id = crypto.randomBytes(10).toString("hex");
-  captchas.set(id, { answer: a + b, expires: Date.now() + 5 * 60_000 });
+  captchas.set(id, { answer: a + b, expires: Date.now() + CAPTCHA_TTL });
   return { id, question: `${a} + ${b} = ؟` };
 }
+
 export function verifyCaptcha(id, answer) {
   const c = captchas.get(id);
   captchas.delete(id);
-  if (!c || c.expires < Date.now()) return false;
+  if (!c) return false;
+  if (c.expires < Date.now()) return false;
   return String(answer).trim() === String(c.answer);
 }

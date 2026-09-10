@@ -4,6 +4,7 @@ import { api, qs, fmtDate, REQUEST_STATUSES, TICKET_STATUSES, requestNo, ticketN
 import { Spinner, Empty, Badge, Pager, Modal, Confirm, Field, FileChips } from "../../components/ui.jsx";
 import { PageHead } from "../../components/shell.jsx";
 import { useApp } from "../../store.jsx";
+import { showError, confirmDialog, promptDialog } from "../../lib/dialogs.jsx";
 
 /* =================== الطلبات (قائمة + بحث) =================== */
 export function Requests() {
@@ -19,7 +20,7 @@ export function Requests() {
     setD(null);
     const status = tab === "all" ? "" : tab === "action" ? "" : tab;
     api(`/api/admin/requests${qs({ page, q, status, needs: tab === "action" ? "1" : "" })}`)
-      .then(setD).catch((e) => alert(e.message));
+      .then(setD).catch((e) => showError(e.message));
   }, [page, q, tab]);
   const tabs = [
     { k: "all", label: "الكل" },
@@ -70,7 +71,7 @@ export function RequestDetail() {
   const [form, setForm] = useState({ note: "", reason: "" });
   const [busy, setBusy] = useState(false);
 
-  const load = () => api(`/api/admin/requests/${id}`).then(setD).catch((e) => alert(e.message));
+  const load = () => api(`/api/admin/requests/${id}`).then(setD).catch((e) => showError(e.message));
   useEffect(() => { load(); }, [id]);
 
   const actions = {
@@ -90,7 +91,7 @@ export function RequestDetail() {
       await api(`/api/admin/requests/${id}/transition`, { method: "POST", body });
       toast("تم تحديث حالة الطلب");
       setOpen(null); setForm({ note: "", reason: "" }); load();
-    } catch (e2) { alert(e2.message); }
+    } catch (e2) { showError(e2.message); }
     setBusy(false);
   };
 
@@ -210,7 +211,7 @@ export function Tickets() {
   useEffect(() => {
     setD(null);
     api(`/api/admin/tickets${qs({ page, q, status: tab === "action" ? "" : tab === "all" ? "" : tab, needs: tab === "action" ? "1" : "" })}`)
-      .then(setD).catch((e) => alert(e.message));
+      .then(setD).catch((e) => showError(e.message));
   }, [page, q, tab]);
   const tabs = [{ k: "all", label: "الكل" }, { k: "action", label: "بانتظار رد" }, ...Object.entries(TICKET_STATUSES).map(([k, v]) => ({ k, label: v.label }))];
   return (
@@ -241,7 +242,7 @@ export function TicketDetail() {
   const [files, setFiles] = useState([]);
   const [busy, setBusy] = useState(false);
   const [confirmClose, setConfirmClose] = useState(false);
-  const load = () => api(`/api/admin/tickets/${id}`).then(setD).catch((e) => alert(e.message));
+  const load = () => api(`/api/admin/tickets/${id}`).then(setD).catch((e) => showError(e.message));
   useEffect(() => { load(); }, [id]);
 
   const reply = async (e) => {
@@ -316,15 +317,27 @@ export function Users() {
 
   const load = (p = page) => {
     setD(null);
-    api(`/api/admin/users${qs({ page: p, q, status: tab })}`).then(setD).catch((e) => alert(e.message));
+    api(`/api/admin/users${qs({ page: p, q, status: tab })}`).then(setD).catch((e) => showError(e.message));
   };
   useEffect(() => { load(page); }, [page, q, tab]);
 
   const toggle = async (u) => {
-    if (!confirm(`ت${u.active ? "عطيل" : "فعيل"} حساب ${u.name}؟`)) return;
-    await api(`/api/admin/users/${u.id}/toggle`, { method: "POST", body: { active: !u.active } });
-    toast(u.active ? "عُطل الحساب" : "فُعّل الحساب");
-    load(page); if (detail) setDetail({ ...detail, user: { ...detail.user, active: !u.active } });
+    const yes = await confirmDialog({
+      title: u.active ? "تعطيل حساب العميل" : "تفعيل حساب العميل",
+      message: u.active
+        ? `سيُمنع ${u.name} من تسجيل الدخول وتُلغى كل جلساته النشطة. الطلبات والتذاكر القائمة تبقى محفوظة. متابعة؟`
+        : `سيتمكن ${u.name} من تسجيل الدخول مرة أخرى. متابعة؟`,
+      confirmText: u.active ? "تعطيل" : "تفعيل",
+      cancelText: "تراجع",
+      danger: !!u.active,
+    });
+    if (!yes) return;
+    try {
+      await api(`/api/admin/users/${u.id}/toggle`, { method: "POST", body: { active: !u.active } });
+      toast(u.active ? "عُطل الحساب" : "فُعّل الحساب");
+      load(page);
+      if (detail) setDetail({ ...detail, user: { ...detail.user, active: !u.active } });
+    } catch (e2) { showError(e2.message); }
   };
 
   const reset = async () => {
@@ -333,7 +346,7 @@ export function Users() {
       await api(`/api/admin/users/${resetFor.id}/reset`, { method: "POST", body: temp });
       toast("أُعيد تعيين كلمة المرور — سجّل العميل الدخول بالكلمة المؤقتة");
       setResetFor(null); setTemp({ temp: "", confirm: "" });
-    } catch (e2) { alert(e2.message); }
+    } catch (e2) { showError(e2.message); }
     setBusy(false);
   };
 

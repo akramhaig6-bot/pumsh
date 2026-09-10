@@ -4,6 +4,7 @@ import { Spinner, Empty, Badge, Pager, Modal, Confirm, Field } from "../../compo
 import { PageHead } from "../../components/shell.jsx";
 import { RichText, MediaPicker, ImageInput } from "../../components/media.jsx";
 import { useApp } from "../../store.jsx";
+import { showError, confirmDialog, promptDialog } from "../../lib/dialogs.jsx";
 
 /* ============================================================
    قالب عام لقائمة + محرر للمحتوى (عروض/مقالات/صفحات)
@@ -30,7 +31,7 @@ export function Offers() {
 
   const load = (p = page) => {
     setD(null);
-    api(`/api/admin/offers${qs({ page: p, q, status: tab })}`).then(setD).catch((e) => alert(e.message));
+    api(`/api/admin/offers${qs({ page: p, q, status: tab })}`).then(setD).catch((e) => showError(e.message));
   };
   useEffect(() => { load(page); }, [page, q, tab]);
 
@@ -41,13 +42,13 @@ export function Offers() {
       else await api("/api/admin/offers", { method: "POST", body: { ...payload, save: saveKind } });
       toast("حُفظ العرض");
       setEditing(null); load(page);
-    } catch (e2) { alert(e2.message); }
+    } catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   const remove = async () => {
     setBusy(true);
     try { await api(`/api/admin/offers/${deleting.id}`, { method: "DELETE" }); toast("حُذف العرض"); setDeleting(null); load(page); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   const flip = async (o, to) => {
@@ -56,10 +57,20 @@ export function Offers() {
       toast(to === "published" ? "نُشر العرض" : "أُوقف العرض");
       load(page);
     } catch (e2) {
-      if (e2.data?.code === "CONFIRM" && confirm(`هذا العرض له ${e2.data.activeCount} طلب نشط. إيقاف النشر سيمنع طلبات جديدة لكن سيُبقى الطلبات القائمة. متابعة؟`)) {
+      /* [M19] الخادم يطلب تأكيداً صريحاً قبل إخفاء عرض له طلبات جارية */
+      if (e2.data?.code === "CONFIRM") {
+        const yes = await confirmDialog({
+          title: "تأكيد إيقاف النشر",
+          message: e2.message || "إيقاف النشر سيخفي العرض عن العملاء، والطلبات القائمة تبقى كما هي. متابعة؟",
+          confirmText: "نعم، أوقف النشر",
+          cancelText: "تراجع",
+          danger: true,
+        });
+        if (!yes) return;
         await api(`/api/admin/offers/${o.id}/status`, { method: "POST", body: { to, confirmed: true } });
-        toast("أُوقف العرض"); load(page);
-      } else alert(e2.message);
+        toast("أُوقف العرض");
+        load(page);
+      } else showError(e2.message);
     }
   };
 
@@ -144,7 +155,7 @@ export function Articles() {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
-  const load = (p = page) => { setD(null); api(`/api/cms/articles${qs({ page: p, q, status: tab === "all" ? "" : tab })}`).then(setD).catch((e) => alert(e.message)); };
+  const load = (p = page) => { setD(null); api(`/api/cms/articles${qs({ page: p, q, status: tab === "all" ? "" : tab })}`).then(setD).catch((e) => showError(e.message)); };
   useEffect(() => { load(page); }, [page, q, tab]);
   useEffect(() => { api("/api/cms/categories").then((r) => setCats(r.categories)).catch(() => {}); }, []);
   const save = async (payload, saveKind) => {
@@ -153,13 +164,13 @@ export function Articles() {
       if (editing?.id) await api(`/api/cms/articles/${editing.id}`, { method: "PUT", body: { ...payload, baseVersion: editing.version, save: saveKind } });
       else await api("/api/cms/articles", { method: "POST", body: { ...payload, save: saveKind } });
       toast("حُفظ المقال"); setEditing(null); load(page);
-    } catch (e2) { alert(e2.message); }
+    } catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   const remove = async () => {
     setBusy(true);
     try { await api(`/api/cms/articles/${deleting.id}`, { method: "DELETE" }); toast("حُذف المقال"); setDeleting(null); load(page); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   return (
@@ -236,7 +247,7 @@ export function Pages() {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
-  const load = () => api("/api/cms/pages").then(setD).catch((e) => alert(e.message));
+  const load = () => api("/api/cms/pages").then(setD).catch((e) => showError(e.message));
   useEffect(() => { load(); }, []);
   const save = async (payload, saveKind) => {
     setBusy(true);
@@ -244,13 +255,13 @@ export function Pages() {
       if (editing?.id) await api(`/api/cms/pages/${editing.id}`, { method: "PUT", body: { ...payload, save: saveKind } });
       else await api("/api/cms/pages", { method: "POST", body: { ...payload, save: saveKind } });
       toast("حُفظت الصفحة"); setEditing(null); load();
-    } catch (e2) { alert(e2.message); }
+    } catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   const remove = async () => {
     setBusy(true);
     try { await api(`/api/cms/pages/${deleting.id}`, { method: "DELETE" }); toast("حُذفت الصفحة"); setDeleting(null); load(); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   const essential = ["terms", "privacy", "about", "contact"];
@@ -307,7 +318,7 @@ export function Categories() {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
-  const load = () => api("/api/cms/categories").then(setD).catch((e) => alert(e.message));
+  const load = () => api("/api/cms/categories").then(setD).catch((e) => showError(e.message));
   useEffect(() => { load(); }, []);
   const save = async (e) => {
     e.preventDefault(); setBusy(true);
@@ -315,13 +326,13 @@ export function Categories() {
       if (editing?.id) await api(`/api/cms/categories/${editing.id}`, { method: "PUT", body: editing });
       else await api("/api/cms/categories", { method: "POST", body: editing });
       toast("حُفظ التصنيف"); setEditing(null); load();
-    } catch (e2) { alert(e2.message); }
+    } catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   const remove = async () => {
     setBusy(true);
     try { await api(`/api/cms/categories/${deleting.id}`, { method: "DELETE" }); toast("حُذف التصنيف"); setDeleting(null); load(); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   return (
@@ -366,7 +377,7 @@ export function Banners() {
   const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
   const load = () => Promise.all([api("/api/cms/banners"), api("/api/admin/offers?per=100")])
-    .then(([b, o]) => { setD(b); setOffers(o.offers || []); }).catch((e) => alert(e.message));
+    .then(([b, o]) => { setD(b); setOffers(o.offers || []); }).catch((e) => showError(e.message));
   useEffect(() => { load(); }, []);
   const save = async (e) => {
     e.preventDefault(); setBusy(true);
@@ -374,13 +385,13 @@ export function Banners() {
       if (editing?.id) await api(`/api/cms/banners/${editing.id}`, { method: "PUT", body: editing });
       else await api("/api/cms/banners", { method: "POST", body: editing });
       toast("حُفظ البانر"); setEditing(null); load();
-    } catch (e2) { alert(e2.message); }
+    } catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   const remove = async () => {
     setBusy(true);
     try { await api(`/api/cms/banners/${deleting.id}`, { method: "DELETE" }); toast("حُذف البانر"); setDeleting(null); load(); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   return (
@@ -449,7 +460,7 @@ export function Menus() {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
-  const load = () => api("/api/cms/menus").then(setD).catch((e) => alert(e.message));
+  const load = () => api("/api/cms/menus").then(setD).catch((e) => showError(e.message));
   useEffect(() => { load(); }, []);
   const save = async (e) => {
     e.preventDefault(); setBusy(true);
@@ -457,13 +468,13 @@ export function Menus() {
       if (editing?.id) await api(`/api/cms/menus/${editing.id}`, { method: "PUT", body: editing });
       else await api("/api/cms/menus", { method: "POST", body: editing });
       toast("حُفظ عنصر القائمة"); setEditing(null); load();
-    } catch (e2) { alert(e2.message); }
+    } catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   const remove = async () => {
     setBusy(true);
     try { await api(`/api/cms/menus/${deleting.id}`, { method: "DELETE" }); toast("حُذف العنصر"); setDeleting(null); load(); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   return (
@@ -518,12 +529,12 @@ export function Texts() {
   const { toast } = useApp();
   const [d, setD] = useState(null);
   const [busy, setBusy] = useState(null);
-  const load = () => api("/api/cms/texts").then(setD).catch((e) => alert(e.message));
+  const load = () => api("/api/cms/texts").then(setD).catch((e) => showError(e.message));
   useEffect(() => { load(); }, []);
   const save = async (t) => {
     setBusy(t.key);
     try { await api(`/api/cms/texts/${encodeURIComponent(t.key)}`, { method: "PUT", body: { value: t.value } }); toast("حُفظ النص"); load(); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
     setBusy(null);
   };
   return (
@@ -556,7 +567,7 @@ function AddText({ onDone }) {
     <form className="row2" onSubmit={async (e) => {
       e.preventDefault();
       try { await api("/api/cms/texts", { method: "POST", body: f }); onDone(f.key); setF({ key: "", value: "" }); }
-      catch (e2) { alert(e2.message); }
+      catch (e2) { showError(e2.message); }
     }}>
       <input dir="ltr" required placeholder="المفتاح: home.offers_title" value={f.key} onChange={(e) => setF({ ...f, key: e.target.value })} />
       <input required placeholder="القيمة الافتراضية" value={f.value} onChange={(e) => setF({ ...f, value: e.target.value })} />
@@ -574,7 +585,7 @@ export function Media() {
   const [deleting, setDeleting] = useState(null);
   const [busy, setBusy] = useState(false);
   const fileRef = useRef(null);
-  const load = (p = page) => { setD(null); api(`/api/cms/media${qs({ page: p, per: 30, q })}`).then(setD).catch((e) => alert(e.message)); };
+  const load = (p = page) => { setD(null); api(`/api/cms/media${qs({ page: p, per: 30, q })}`).then(setD).catch((e) => showError(e.message)); };
   useEffect(() => { load(page); }, [page, q]);
   const up = async (files) => {
     if (!files?.length) return;
@@ -585,13 +596,13 @@ export function Media() {
       const r = await api("/api/cms/media/upload", { method: "POST", form });
       toast(`رُفع ${r.media?.length || files.length} ملف`);
       load(1); setPage(1);
-    } catch (e2) { alert(e2.message); }
+    } catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   const remove = async () => {
     setBusy(true);
     try { await api(`/api/cms/media/${deleting.id}`, { method: "DELETE" }); toast("حُذف الملف"); setDeleting(null); load(page); }
-    catch (e2) { alert(e2.message); }
+    catch (e2) { showError(e2.message); }
     setBusy(false);
   };
   return (
